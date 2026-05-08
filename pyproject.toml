@@ -1,0 +1,27 @@
+[project]
+name = "lean-edits-analysis"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Kyle Thompson", email = "r7thompson@ucsd.edu" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "edit-data",
+]
+
+[project.scripts]
+lean-edits-analysis = "lean_edits_analysis:main"
+
+[build-system]
+requires = ["uv_build>=0.8.22,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+edit-data = { git = "https://github.com/rkthomps/edit-data" }
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.409",
+]
