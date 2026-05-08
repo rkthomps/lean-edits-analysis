@@ -1,3 +1,4 @@
+import logging
 from typing import Iterable
 from pathlib import Path
 from dataclasses import dataclass
@@ -66,6 +67,7 @@ def load_session(
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     session = load_session(
         repo_owner="rkthomps",
         repo_name="lean-time-m",

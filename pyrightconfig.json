@@ -1,0 +1,23 @@
+{
+    "typeCheckingMode": "basic",
+    "reportUnusedImport": "warning",
+    "reportUnusedVariable": "warning",
+    "reportUnusedClass": "warning",
+    "reportUnusedFunction": "warning",
+    "reportUnusedExpression": "warning",
+    "reportUnnecessaryTypeIgnoreComment": "warning",
+    "reportUnnecessaryCast": "warning",
+    "reportUnnecessaryComparison": "warning",
+    "exclude": [
+        "**/__pycache__",
+        "**/.venv",
+        "**/build",
+        "**/dist"
+    ],
+    "include": [
+        "src",
+        "tests",
+    ],
+    "venvPath": ".",
+    "venv": ".venv"
+}
