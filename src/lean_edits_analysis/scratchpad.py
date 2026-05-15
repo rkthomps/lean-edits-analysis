@@ -1,3 +1,4 @@
+import re
 import tomlkit
 
 from typing import Optional
@@ -10,11 +11,47 @@ from lean_edits_analysis.common import SCRATCHPAD_LOC
 logger = logging.getLogger(__name__)
 
 
-def _add_instruments_to_lakefile_lean(lakefile_path: Path):
+def get_compatible_version(lean_toolchain: str) -> str:
+    """
+    See https://github.com/rkthomps/llm-instruments for compatibility
+    """
+    toolchain_match = re.match(r"^leanprover/lean4:v4\.(\d\d)\.(\d)$", lean_toolchain)
+    if not toolchain_match:
+        raise ValueError(
+            f"Unexpected lean toolchain format: {lean_toolchain}. Expected format: 'leanprover/lean4:v4.xx.x'"
+        )
+    minor_version_str, _ = toolchain_match.groups()
+    minor_version = int(minor_version_str)
+    if minor_version < 10:
+        raise ValueError(
+            f"Unsupported lean version {lean_toolchain}. Expected  >= v4.10."
+        )
+    if minor_version < 18:
+        return "4.10.0"
+    if minor_version < 22:
+        return "4.18.0"
+    if minor_version < 24:
+        return "4.22.0"
+    if minor_version < 25:
+        return "4.24.0"
+    if minor_version < 27:
+        return "4.25.0"
+    if minor_version < 29:
+        return "4.27.0"
+    return "main"
+
+
+def get_llm_instruments_branch(lean_toolchain_path: Path) -> str:
+    contents = lean_toolchain_path.read_text()
+    lean_toolchain = contents.strip()
+    return get_compatible_version(lean_toolchain)
+
+
+def _add_instruments_to_lakefile_lean(lakefile_path: Path, compatible_branch: str):
     assert (
         lakefile_path.suffix == ".lean"
     ), f"Expected a .lean file, got {lakefile_path}"
-    require_line = 'require «llm-instruments» from git "https://github.com/rkthomps/llm-instruments" @ "main"'
+    require_line = f'require «llm-instruments» from git "https://github.com/rkthomps/llm-instruments" @ "{compatible_branch}"'
     text = lakefile_path.read_text()
 
     if "llm-instruments" in text:
@@ -26,7 +63,9 @@ def _add_instruments_to_lakefile_lean(lakefile_path: Path):
     lakefile_path.write_text(text + sep + require_line + "\n")
 
 
-def _add_instruments_to_lakefile_toml(lakefile_path: Path) -> None:
+def _add_instruments_to_lakefile_toml(
+    lakefile_path: Path, compatible_branch: str
+) -> None:
     doc = tomlkit.parse(lakefile_path.read_text())
 
     requires = doc.get("require")
@@ -40,7 +79,7 @@ def _add_instruments_to_lakefile_toml(lakefile_path: Path) -> None:
     entry = tomlkit.table()
     entry["name"] = "llm-instruments"
     entry["git"] = "https://github.com/rkthomps/llm-instruments.git"
-    entry["rev"] = "main"
+    entry["rev"] = compatible_branch
     requires.append(entry)
 
     lakefile_path.write_text(tomlkit.dumps(doc))
@@ -94,15 +133,22 @@ class Scratchpad:
         _run(["git", "checkout", self.commit_sha], cwd=self.repo_path)
 
     def add_instrumentation(self):
+        lean_toolchain_path = self.repo_path / "lean-toolchain"
+        if not lean_toolchain_path.exists():
+            raise ValueError(f"lean-toolchain file not found in {self.repo_path}")
+        compatible_branch = get_llm_instruments_branch(lean_toolchain_path)
+        logger.info(
+            f"Using llm-instruments branch {compatible_branch} for lean toolchain in {self.repo_url}"
+        )
         lakefile_toml = self.repo_path / "lakefile.toml"
         if lakefile_toml.exists():
             logger.info(f"Adding llm-instruments to {lakefile_toml}")
-            _add_instruments_to_lakefile_toml(lakefile_toml)
+            _add_instruments_to_lakefile_toml(lakefile_toml, compatible_branch)
             return
         lakefile_lean = self.repo_path / "lakefile.lean"
         if lakefile_lean.exists():
             logger.info(f"Adding llm-instruments to {lakefile_lean}")
-            _add_instruments_to_lakefile_lean(lakefile_lean)
+            _add_instruments_to_lakefile_lean(lakefile_lean, compatible_branch)
             return
         raise ValueError(
             f"Could not find lakefile.toml or lakefile.lean in {self.repo_path}"
@@ -117,8 +163,15 @@ class Scratchpad:
             f"Running llm-instruments heartbeat for {self.repo_url} at commit {self.commit_sha}"
         )
         _run(["lake", "exe", "llm-instruments", "heartbeat"], cwd=self.repo_path)
+        logger.info(
+            f"Building llm-instruments-server for {self.repo_url} at commit {self.commit_sha}"
+        )
+        _run(["lake", "build", "llm-instruments-server"], cwd=self.repo_path)
 
     def lake_build(self):
+        logger.info(
+            f"Building {self.repo_url} at commit {self.commit_sha} with llm-instruments"
+        )
         result = _run(["lake", "build"], cwd=self.repo_path, check=False)
         logger.info(
             f"Built {self.repo_url} at commit {self.commit_sha}. Success: {result}"

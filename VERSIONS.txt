@@ -1,0 +1,42 @@
+=== Main ===
+4.29.0 
+
+=== 4.27.0 ===
+4.28.0
+4.27.0
+Notes: Had to add .uri in the FileSource constructor of the LSP files
+
+=== 4.25.0 ===
+4.26.0
+4.25.0
+Notes: Extraction for strings in Common
+
+=== 4.24.0 ===
+4.24.0
+Notes: No more proof of validity for String extract in Common 
+
+=== 4.22.0 ===
+4.23.0
+4.22.0
+Notes: 
+- No .uri in the FileSource constructor on LSP files
+- inputString field -> input
+
+=== 4.18.0 ===
+4.21.0
+4.20.0
+4.19.0
+4.18.0
+- Modify tests to name the have syntax node with one _ instead of two __
+
+=== 4.10.0 ===
+4.17.0
+4.16.0
+4.15.0
+4.14.0
+4.13.0
+4.12.0
+4.11.0
+4.10.0
+- No more mapTaskCostly. Instead, just mapTask
+- Explicit inhabited on foldInfoTree

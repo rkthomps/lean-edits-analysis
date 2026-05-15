@@ -11,6 +11,17 @@ from edit_data.zip_edits import load_workspace_history
 from lean_edits_analysis.common import DATA_LOC
 from lean_edits_analysis.scratchpad import Scratchpad
 
+from lean_client.client import (
+    FindTheoremsRequest,
+    FindTheoremsResponse,
+    FindDeclsRequest,
+    FindDeclsResponse,
+    Decl,
+    LeanClient,
+)
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class ChangedDeclarations:
@@ -66,9 +77,34 @@ def load_session(
     )
 
 
-if __name__ == "__main__":
+def get_decls(scratchpad: Scratchpad, file_relpath: Path) -> list[Decl]:
+    file_path = (scratchpad.repo_path / file_relpath).resolve()
+    file_uri = file_path.as_uri()
+    if not file_path.exists():
+        raise ValueError(f"File {file_path} does not exist in scratchpad repo")
+    with LeanClient.start(scratchpad.repo_path, instrument_server=True) as client:
+        logger.info(f"Sending uri {file_uri} to LeanClient to get decls")
+
+        client.open_file(file_uri, file_path.read_text())
+
+        response = client.send_request(FindTheoremsRequest(uri=file_uri))
+        assert isinstance(
+            response, FindTheoremsResponse
+        ), f"Expected FindTheoremsResponse, got {type(response)}"
+        logger.info(
+            f"Received {len(response.theorems)} theorems from LeanClient for file {file_path}"
+        )
+
+        response = client.send_request(FindDeclsRequest(uri=file_uri))
+        assert isinstance(
+            response, FindDeclsResponse
+        ), f"Expected FindDeclsResponse, got {type(response)}"
+        return response.decls
+
+
+def debug_session():
     logging.basicConfig(level=logging.INFO)
-    session = load_session(
+    session_change_history = load_session(
         repo_owner="rkthomps",
         repo_name="lean-time-m",
         commit_sha="880d1ca2ed73bb4427396fd635e301934142a97c",
@@ -79,4 +115,13 @@ if __name__ == "__main__":
         repo_name="lean-time-m",
         commit_sha="880d1ca2ed73bb4427396fd635e301934142a97c",
     )
-    scratchpad.setup()
+    # scratchpad.setup()
+    changed_files = get_changed_files(session_change_history)
+
+    for file, _ in changed_files:
+        logger.info(f"Getting decls for changed file {file}")
+        print(get_decls(scratchpad, file))
+
+
+if __name__ == "__main__":
+    debug_session()
