@@ -119,6 +119,12 @@ class Scratchpad:
     def repo_path(self) -> Path:
         return self.owner_path / self.repo_name
 
+    def write_version(self, files: dict[Path, str]):
+        for file_relpath, contents in files.items():
+            file_path = (self.repo_path / file_relpath).resolve()
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(contents)
+
     def clone_and_checkout(self):
         self.owner_path.mkdir(parents=True, exist_ok=True)
         if not self.repo_path.exists():
