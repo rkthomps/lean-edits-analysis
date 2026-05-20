@@ -1,7 +1,7 @@
 import re
 import tomlkit
 
-from typing import Optional
+from typing import Optional, Iterable
 import logging
 import subprocess
 from pathlib import Path
@@ -10,8 +10,14 @@ from lean_edits_analysis.common import SCRATCHPAD_LOC
 
 logger = logging.getLogger(__name__)
 
+_EXPECTED_MODIFIED_FILES: list[Path] = [
+    Path("lakefile.toml"),
+    Path("lakefile.lean"),
+    Path("lake-manifest.json"),
+]
 
-def get_compatible_version(lean_toolchain: str) -> str:
+
+def _get_compatible_version(lean_toolchain: str) -> str:
     """
     See https://github.com/rkthomps/llm-instruments for compatibility
     """
@@ -41,10 +47,10 @@ def get_compatible_version(lean_toolchain: str) -> str:
     return "main"
 
 
-def get_llm_instruments_branch(lean_toolchain_path: Path) -> str:
+def _get_llm_instruments_branch(lean_toolchain_path: Path) -> str:
     contents = lean_toolchain_path.read_text()
     lean_toolchain = contents.strip()
-    return get_compatible_version(lean_toolchain)
+    return _get_compatible_version(lean_toolchain)
 
 
 def _add_instruments_to_lakefile_lean(lakefile_path: Path, compatible_branch: str):
@@ -85,7 +91,9 @@ def _add_instruments_to_lakefile_toml(
     lakefile_path.write_text(tomlkit.dumps(doc))
 
 
-def _run(command: list[str], cwd: Optional[Path] = None, check: bool = True) -> bool:
+def _run(
+    command: list[str], cwd: Optional[Path] = None, check: bool = True
+) -> subprocess.CompletedProcess[str]:
     """Returns true if the command ran successfully, false otherwise."""
     try:
         output = subprocess.run(
@@ -95,7 +103,7 @@ def _run(command: list[str], cwd: Optional[Path] = None, check: bool = True) -> 
             capture_output=True,
             text=True,
         )
-        return output.returncode == 0
+        return output
     except subprocess.CalledProcessError as e:
         logger.exception(f"Command '{' '.join(command)}' failed: {e}")
         raise
@@ -119,13 +127,26 @@ class Scratchpad:
     def repo_path(self) -> Path:
         return self.owner_path / self.repo_name
 
+    def _modified_files(self) -> Iterable[Path]:
+        result = _run(
+            ["git", "diff", "--name-only", "HEAD"],
+            cwd=self.repo_path,
+        )
+        return (Path(line) for line in result.stdout.splitlines() if line)
+
+    def restore(self):
+        for file in self._modified_files():
+            if file in _EXPECTED_MODIFIED_FILES:
+                continue
+            _run(["git", "restore", str(file)], cwd=self.repo_path)
+
     def write_version(self, files: dict[Path, str]):
         for file_relpath, contents in files.items():
             file_path = (self.repo_path / file_relpath).resolve()
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(contents)
 
-    def clone_and_checkout(self):
+    def _clone_and_checkout(self):
         self.owner_path.mkdir(parents=True, exist_ok=True)
         if not self.repo_path.exists():
             logger.info(f"Cloning {self.repo_url} into scratchpad")
@@ -138,11 +159,11 @@ class Scratchpad:
         _run(["git", "restore", "."], cwd=self.repo_path)
         _run(["git", "checkout", self.commit_sha], cwd=self.repo_path)
 
-    def add_instrumentation(self):
+    def _add_instrumentation(self):
         lean_toolchain_path = self.repo_path / "lean-toolchain"
         if not lean_toolchain_path.exists():
             raise ValueError(f"lean-toolchain file not found in {self.repo_path}")
-        compatible_branch = get_llm_instruments_branch(lean_toolchain_path)
+        compatible_branch = _get_llm_instruments_branch(lean_toolchain_path)
         logger.info(
             f"Using llm-instruments branch {compatible_branch} for lean toolchain in {self.repo_url}"
         )
@@ -160,7 +181,7 @@ class Scratchpad:
             f"Could not find lakefile.toml or lakefile.lean in {self.repo_path}"
         )
 
-    def lake_update(self):
+    def _lake_update(self):
         _run(["lake", "update"], cwd=self.repo_path)
         logger.info(
             f"Ran 'lake update' for {self.repo_url} at commit {self.commit_sha}"
@@ -174,17 +195,17 @@ class Scratchpad:
         )
         _run(["lake", "build", "llm-instruments-server"], cwd=self.repo_path)
 
-    def lake_build(self):
+    def _lake_build(self):
         logger.info(
             f"Building {self.repo_url} at commit {self.commit_sha} with llm-instruments"
         )
         result = _run(["lake", "build"], cwd=self.repo_path, check=False)
         logger.info(
-            f"Built {self.repo_url} at commit {self.commit_sha}. Success: {result}"
+            f"Built {self.repo_url} at commit {self.commit_sha}. Success: {result.returncode == 0}"
         )
 
     def setup(self):
-        self.clone_and_checkout()
-        self.add_instrumentation()
-        self.lake_update()
-        self.lake_build()
+        self._clone_and_checkout()
+        self._add_instrumentation()
+        self._lake_update()
+        self._lake_build()

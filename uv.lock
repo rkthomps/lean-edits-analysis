@@ -55,6 +55,7 @@ source = { editable = "." }
 dependencies = [
     { name = "edit-data" },
     { name = "lean-client" },
+    { name = "pydantic" },
     { name = "tomlkit" },
 ]
 
@@ -67,6 +68,7 @@ dev = [
 requires-dist = [
     { name = "edit-data", git = "https://github.com/rkthomps/edit-data" },
     { name = "lean-client", git = "https://github.com/rkthomps/lean-client" },
+    { name = "pydantic", specifier = ">=2.13.4" },
     { name = "tomlkit", specifier = ">=0.14.0" },
 ]
 

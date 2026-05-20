@@ -14,6 +14,7 @@ from edit_data.edits import get_version_at_edit
 
 from lean_edits_analysis.common import DATA_LOC
 from lean_edits_analysis.scratchpad import Scratchpad
+from lean_edits_analysis.edit_info import EditInfo, EditInfoCache, iter_edits_with_info
 
 from lean_client.client import (
     FindTheoremsRequest,
@@ -127,21 +128,6 @@ def get_modified_decls(decls_before: list[Decl], decls_after: list[Decl]) -> lis
     return [decls_after_dict[name] for name in modified_decl_names]
 
 
-def _get_changed_files(
-    previous_version: Optional[dict[Path, str]], current_version: dict[Path, str]
-) -> set[Path]:
-    if previous_version is None:
-        return set(current_version.keys())
-    changed_files = set()
-    for file in current_version.keys():
-        if (
-            file not in previous_version
-            or previous_version[file] != current_version[file]
-        ):
-            changed_files.add(file)
-    return changed_files
-
-
 def to_client_range(range: EditRange) -> Range:
     return Range(
         start=Position(line=range.start.line, character=range.start.character),
@@ -152,6 +138,7 @@ def to_client_range(range: EditRange) -> Range:
 def find_edit_decls(decls: list[Decl], edit: Edit) -> list[Decl]:
     """
     Find the decls that overlap with the given edit.
+    TODO: This is currently wrong. Need to make each change then check.
     """
     overlapping_decls: list[Decl] = []
     for decl in decls:
@@ -171,46 +158,23 @@ def replay_edits_single_file(
     - when other files change, we need to restart the language server
     - TODO: write a check for other files changing.
     """
-    full_file_path = scratchpad.repo_path / file
-    file_uri = full_file_path.resolve().as_uri()
-    file_history = session.get_dict()[file]
-    previous_version: Optional[dict[Path, str]] = None
-    client = LeanClient.start(scratchpad.repo_path, instrument_server=True)
-    client.open_file(file_uri, full_file_path.read_text())
     decl_edits: dict[str, list[Edit]] = {}
-    try:
-        for i, edit in enumerate(file_history.edits_history):
-            logger.info(
-                f"Replaying edit {i}/{len(file_history.edits_history)} for file {file}"
-            )
-            if i % 50 == 0:
-                edit_lengths = {n: len(edits) for n, edits in decl_edits.items()}
-                logger.info(f"Current decl edit counts: {edit_lengths}")
-            current_version = get_version_at_edit(file, session.get_dict(), i)
-            scratchpad.write_version(current_version)
-            changed_files = _get_changed_files(previous_version, current_version)
-            previous_version = current_version
-            if len(changed_files) < 1:
-                logger.info(f"No changes detected at edit {i} for file {file}")
+    for edit_idx, prev_edit_info, edit, edit_info in iter_edits_with_info(
+        scratchpad, session, file
+    ):
+        edit_decls = find_edit_decls(prev_edit_info.decls, edit)
+        for decl in edit_decls:
+            if decl.name is None:
                 continue
-            elif len(changed_files) > 1:
-                # TODO: re-open files on restart
-                client = client.restart()
-                client.open_file(file_uri, full_file_path.read_text())
-            else:
-                client.change_file(file_uri, full_file_path.read_text())
-
-            decls = get_decls(client, scratchpad, file)
-            edit_decls = find_edit_decls(decls, edit)
-            for decl in edit_decls:
-                if decl.name is None:
-                    continue
-                if decl.name not in decl_edits:
-                    decl_edits[decl.name] = []
-                decl_edits[decl.name].append(edit)
-        return decl_edits
-    finally:
-        client.shutdown()
+            if decl.name not in decl_edits:
+                decl_edits[decl.name] = []
+            decl_edits[decl.name].append(edit)
+        if edit_idx % 25 == 0:
+            logger.info(f"Processed {edit_idx} edits for file {file}")
+            logger.info(
+                f"Current decl edits: { {decl_name: len(edits) for decl_name, edits in decl_edits.items()} }"
+            )
+    return decl_edits
 
 
 def show_decl(decl: Decl) -> str:
@@ -218,6 +182,7 @@ def show_decl(decl: Decl) -> str:
 
 
 def debug_session():
+
     logging.basicConfig(
         level=logging.WARNING,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
@@ -236,53 +201,61 @@ def debug_session():
         repo_name="lean-time-m",
         commit_sha="880d1ca2ed73bb4427396fd635e301934142a97c",
     )
-    # scratchpad.setup()
+    scratchpad.setup()
     changed_files = get_changed_files(session_change_history)
+    for file, _ in changed_files:
+        cache = EditInfoCache.get_cache(scratchpad, file)
+        if not cache.exists_and_has_correct_num_edits(
+            session_change_history, file, scratchpad
+        ):
+            cache.delete_cache()
+            logger.info(f"Creating cache for file {file}")
+            cache.create(scratchpad, session=session_change_history)
 
-    for file, num_edits in changed_files:
-        logger.info(f"Getting decls for changed file {file}")
+    # for file, num_edits in changed_files:
+    #     logger.info(f"Getting decls for changed file {file}")
 
-        full_file_path = scratchpad.repo_path / file
-        file_uri = full_file_path.resolve().as_uri()
-        before = get_version_at_edit(file, session_change_history.get_dict(), 0)
-        scratchpad.write_version(before)
-        with LeanClient.start(
-            scratchpad.repo_path, instrument_server=True, timeout=30
-        ) as client:
-            client.open_file(file_uri, full_file_path.read_text())
-            decls_before = get_decls(client, scratchpad, file)
-            logger.info(f"Decls before: {len(decls_before)} decls")
+    #     full_file_path = scratchpad.repo_path / file
+    #     file_uri = full_file_path.resolve().as_uri()
+    #     before = get_version_at_edit(file, session_change_history.get_dict(), 0)
+    #     scratchpad.write_version(before)
+    #     with LeanClient.start(
+    #         scratchpad.repo_path, instrument_server=True, timeout=30
+    #     ) as client:
+    #         client.open_file(file_uri, full_file_path.read_text())
+    #         decls_before = get_decls(client, scratchpad, file)
+    #         logger.info(f"Decls before: {len(decls_before)} decls")
 
-        after = get_version_at_edit(
-            file, session_change_history.get_dict(), num_edits - 1
-        )
-        scratchpad.write_version(after)
-        with LeanClient.start(
-            scratchpad.repo_path, instrument_server=True, timeout=30
-        ) as client:
-            client.open_file(file_uri, full_file_path.read_text())
-            decls_after = get_decls(client, scratchpad, file)
-            logger.info(f"Decls after: {len(decls_after)} decls")
+    #     after = get_version_at_edit(
+    #         file, session_change_history.get_dict(), num_edits - 1
+    #     )
+    #     scratchpad.write_version(after)
+    #     with LeanClient.start(
+    #         scratchpad.repo_path, instrument_server=True, timeout=30
+    #     ) as client:
+    #         client.open_file(file_uri, full_file_path.read_text())
+    #         decls_after = get_decls(client, scratchpad, file)
+    #         logger.info(f"Decls after: {len(decls_after)} decls")
 
-        added_decls = get_added_decls(decls_before, decls_after)
-        removed_decls = get_removed_decls(decls_before, decls_after)
-        modified_decls = get_modified_decls(decls_before, decls_after)
+    #     added_decls = get_added_decls(decls_before, decls_after)
+    #     removed_decls = get_removed_decls(decls_before, decls_after)
+    #     modified_decls = get_modified_decls(decls_before, decls_after)
 
-        print(f"Added decls in {file}:")
-        for decl in added_decls:
-            print(f"  {show_decl(decl)}")
-        print(f"Removed decls in {file}:")
-        for decl in removed_decls:
-            print(f"  {show_decl(decl)}")
-        print(f"Modified decls in {file}:")
-        for decl in modified_decls:
-            print(f"  {show_decl(decl)}")
+    #     print(f"Added decls in {file}:")
+    #     for decl in added_decls:
+    #         print(f"  {show_decl(decl)}")
+    #     print(f"Removed decls in {file}:")
+    #     for decl in removed_decls:
+    #         print(f"  {show_decl(decl)}")
+    #     print(f"Modified decls in {file}:")
+    #     for decl in modified_decls:
+    #         print(f"  {show_decl(decl)}")
 
-        edits_per_decl = replay_edits_single_file(
-            scratchpad, session_change_history, file
-        )
-        for decl_name, edits in edits_per_decl.items():
-            print(f"- Decl {decl_name} has {len(edits)} edits.")
+    #     edits_per_decl = replay_edits_single_file(
+    #         scratchpad, session_change_history, file
+    #     )
+    #     for decl_name, edits in edits_per_decl.items():
+    #         print(f"- Decl {decl_name} has {len(edits)} edits.")
 
 
 if __name__ == "__main__":
