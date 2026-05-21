@@ -1,0 +1,6 @@
+{
+  "name": "lean-edits-viz",
+  "private": true,
+  "type": "module",
+  "description": "Declares the src/ files as ES modules. No build step, no dependencies."
+}

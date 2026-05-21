@@ -1,0 +1,162 @@
+.dh {
+  /* Override these to retheme (e.g. from VSCode theme variables later). */
+  --dh-added: #16a34a;
+  --dh-removed: #dc2626;
+  --dh-axis: #9ca3af;
+  --dh-text: #374151;
+  --dh-header: #111827;
+  position: relative;
+}
+
+.dh-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2328;
+}
+
+.dh-controls {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.dh-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--dh-text);
+}
+
+.dh-slider {
+  width: 200px;
+}
+
+.dh-bin-label {
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+}
+
+.dh-legend {
+  display: inline-flex;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--dh-text);
+}
+
+.dh-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dh-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.dh-caption {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.dh-svg-host {
+  width: 100%;
+}
+
+.dh-svg {
+  display: block;
+}
+
+.dh-file-header {
+  fill: #f3f4f6;
+  cursor: pointer;
+}
+
+.dh-file-header:hover {
+  fill: #e5e7eb;
+}
+
+.dh-file-name {
+  font-size: 13px;
+  font-weight: 600;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
+.dh-decl-label {
+  font-size: 11px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
+.dh-axis-label {
+  font-size: 11px;
+}
+
+.dh-cell {
+  shape-rendering: crispEdges;
+}
+
+.dh-cell:hover {
+  stroke: rgba(0, 0, 0, 0.45);
+  stroke-width: 1;
+}
+
+.dh-tooltip {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  max-width: 320px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #111827;
+  color: #f9fafb;
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  transition: opacity 0.08s;
+}
+
+.dh-tooltip.is-visible {
+  opacity: 1;
+}
+
+.dh-tip-decl {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-weight: 600;
+}
+
+.dh-tip-file {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #d1d5db;
+  word-break: break-all;
+}
+
+.dh-tip-range {
+  color: #9ca3af;
+}
+
+.dh-tip-counts {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.dh-tip-add {
+  color: #4ade80;
+}
+
+.dh-tip-rem {
+  color: #f87171;
+}
+
+.dh-tip-unit {
+  color: #9ca3af;
+}

@@ -1,0 +1,87 @@
+:root {
+  --shell-bg: #ffffff;
+  --shell-fg: #1f2328;
+  --shell-muted: #6b7280;
+  --shell-border: #e5e7eb;
+  --shell-sidebar-bg: #f6f7f9;
+  --shell-accent: #4f46e5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: var(--shell-fg);
+  background: var(--shell-bg);
+}
+
+.shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.shell-sidebar {
+  width: 240px;
+  flex: 0 0 240px;
+  background: var(--shell-sidebar-bg);
+  border-right: 1px solid var(--shell-border);
+  padding: 16px;
+}
+
+.shell-title {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--shell-muted);
+  margin: 0 0 12px;
+}
+
+.shell-sessions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.shell-session {
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  word-break: break-word;
+}
+
+.shell-session:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.shell-session.is-active {
+  background: var(--shell-accent);
+  color: #fff;
+}
+
+.shell-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 24px 28px;
+  overflow-x: auto;
+}
+
+.shell-session-title {
+  font-size: 18px;
+  margin: 0 0 16px;
+}
+
+.shell-view {
+  margin: 0 0 32px;
+}
+
+.shell-empty {
+  color: var(--shell-muted);
+}
+
+.shell-error {
+  color: #b91c1c;
+  white-space: pre-wrap;
+}

@@ -1,0 +1,141 @@
+.fh {
+  /* Override these to retheme (e.g. from VSCode theme variables later). */
+  --fh-added: #16a34a;
+  --fh-removed: #dc2626;
+  --fh-axis: #9ca3af;
+  --fh-text: #374151;
+  position: relative;
+}
+
+.fh-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2328;
+}
+
+.fh-controls {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.fh-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--fh-text);
+}
+
+.fh-slider {
+  width: 200px;
+}
+
+.fh-bin-label {
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+}
+
+.fh-legend {
+  display: inline-flex;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--fh-text);
+}
+
+.fh-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fh-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.fh-caption {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.fh-svg-host {
+  width: 100%;
+}
+
+.fh-svg {
+  display: block;
+}
+
+.fh-file-label {
+  font-size: 12px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
+.fh-axis-label {
+  font-size: 11px;
+}
+
+.fh-cell {
+  shape-rendering: crispEdges;
+}
+
+.fh-cell:hover {
+  stroke: rgba(0, 0, 0, 0.45);
+  stroke-width: 1;
+}
+
+.fh-tooltip {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  max-width: 280px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #111827;
+  color: #f9fafb;
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  transition: opacity 0.08s;
+}
+
+.fh-tooltip.is-visible {
+  opacity: 1;
+}
+
+.fh-tip-file {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #d1d5db;
+  word-break: break-all;
+}
+
+.fh-tip-range {
+  color: #9ca3af;
+}
+
+.fh-tip-counts {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.fh-tip-add {
+  color: #4ade80;
+}
+
+.fh-tip-rem {
+  color: #f87171;
+}
+
+.fh-tip-unit {
+  color: #9ca3af;
+}

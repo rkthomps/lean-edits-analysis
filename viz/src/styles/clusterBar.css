@@ -1,0 +1,55 @@
+.cb {
+  --cb-accent: #4f46e5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0 4px;
+  font-size: 12px;
+}
+
+.cb-label {
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.cb-gap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #6b7280;
+}
+
+.cb-threshold {
+  font-size: 12px;
+  padding: 2px 4px;
+}
+
+.cb-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cb-chip {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding: 3px 9px;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+}
+
+.cb-chip:hover {
+  border-color: #9ca3af;
+  background: #f9fafb;
+}
+
+.cb-chip.is-active {
+  background: var(--cb-accent);
+  border-color: var(--cb-accent);
+  color: #fff;
+}

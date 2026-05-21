@@ -1,0 +1,21 @@
+# viz/ — what to check in
+#
+# Tracked: the app source (index.html, package.json, src/**) and the docs
+# (SPEC.md, CONVENTIONS.md). These are the source of truth, and there is no
+# build step, so src/ is the artifact that actually runs.
+#
+# Not tracked: anything generated. The data/ directory below is JSON emitted by
+# the Python side (src/lean_edits_analysis/visualize/) and is reproducible from
+# the analysis pipeline — same convention the repo root uses for data/, cache/,
+# and scratchpad/.
+
+# Generated session data: manifest.json + per-session JSON.
+# To commit a demo session anyway: git add -f data/<session>.json
+data/
+
+# JS dependencies should never appear (no build step, no deps — see
+# CONVENTIONS.md), but guard against an accidental `npm install`.
+node_modules/
+
+# macOS cruft
+.DS_Store

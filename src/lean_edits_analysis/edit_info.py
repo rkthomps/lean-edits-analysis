@@ -1,5 +1,7 @@
 import logging
 import shutil
+import click
+from filelock import FileLock
 from typing import Iterable, Optional
 from pydantic import BaseModel
 from pathlib import Path
@@ -20,6 +22,7 @@ from lean_client.client import (
 logger = logging.getLogger(__name__)
 
 CACHE_LOC = Path("cache")
+LOCKS_LOC = Path("locks")
 
 
 class EditInfo(BaseModel):
@@ -131,20 +134,20 @@ class EditInfoCache(BaseModel):
             prev_edit_info = EditInfo.model_validate_json(
                 self.prev_edit_info_loc.read_text()
             )
-        else:
-            with self.edit_infos_loc.open() as f:
-                for i, line in enumerate(f):
-                    if i < edit_start_idx:
-                        continue
-                    if i == (edit_start_idx - 1):
-                        prev_edit_info = EditInfo.model_validate_json(line)
-                    else:
-                        assert i >= edit_start_idx
-                        assert prev_edit_info is not None
-                        edit_info = EditInfo.model_validate_json(line)
-                        edit = session.get_dict()[file].edits_history[i]
-                        yield i, prev_edit_info, edit, edit_info
-                        prev_edit_info = edit_info
+
+        with self.edit_infos_loc.open() as f:
+            for i, line in enumerate(f):
+                if i == (edit_start_idx - 1):
+                    prev_edit_info = EditInfo.model_validate_json(line)
+                elif i < edit_start_idx:
+                    continue
+                else:
+                    assert i >= edit_start_idx
+                    assert prev_edit_info is not None
+                    edit_info = EditInfo.model_validate_json(line)
+                    edit = session.get_dict()[file].edits_history[i]
+                    yield i, prev_edit_info, edit, edit_info
+                    prev_edit_info = edit_info
 
     def exists_and_has_correct_num_edits(
         self, session: WorkspaceChangeHistory, file: Path, scratchpad: Scratchpad
@@ -199,3 +202,47 @@ class EditInfoCache(BaseModel):
                 if edit_idx == 0:
                     prev_edit_info_file.write(prev_edit_info.model_dump_json())
                 edit_infos_file.write(edit_info.model_dump_json() + "\n")
+
+
+@click.group()
+def cli():
+    pass
+
+
+def _get_repo_lock(repo_owner: str, repo_name: str) -> FileLock:
+    repo_lock_path = LOCKS_LOC / repo_owner / repo_name / "repo.lock"
+    repo_lock_path.parent.mkdir(parents=True, exist_ok=True)
+    return FileLock(repo_lock_path)
+
+
+def _cache_session_file(repo_owner: str, repo_name: str, commit_sha: str, file: Path):
+    pass
+
+
+@cli.command()
+def cache_session_file(repo_owner: str, repo_name: str, commit_sha: str, file: Path):
+    pass
+
+
+def _cache_session():
+    pass
+
+
+@cli.command()
+def cache_session(repo_owner: str, repo_name: str, commit_sha: str):
+    scratchpad = Scratchpad(
+        repo_owner=repo_owner, repo_name=repo_name, commit_sha=commit_sha
+    )
+
+
+def _cache_repo():
+    pass
+
+
+@cli.command()
+def cache_repo(repo_owner: str, repo_name: str):
+    pass
+
+
+if __name__ == "__main__":
+    pass

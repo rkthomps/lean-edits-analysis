@@ -14,7 +14,6 @@ from edit_data.edits import get_version_at_edit
 
 from lean_edits_analysis.common import DATA_LOC
 from lean_edits_analysis.scratchpad import Scratchpad
-from lean_edits_analysis.edit_info import EditInfo, EditInfoCache, iter_edits_with_info
 
 from lean_client.client import (
     FindTheoremsRequest,
@@ -27,21 +26,9 @@ from lean_client.client import (
     Position,
 )
 
+from lean_edits_analysis.util import to_client_range
+
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ChangedDeclarations:
-    decls_added: set[str]
-    decls_removed: set[str]
-    decls_modified: set[str]
-
-
-# def get_changed_declarations(
-#     workspace_change_history: WorkspaceChangeHistory,
-#     file: Path,
-# ) -> Iterable[tuple[str, ]]
-#     pass
 
 
 def get_changed_files(
@@ -54,10 +41,6 @@ def get_changed_files(
     for file in workspace_change_history.files:
         if 0 < len(file.edits_history):
             yield file.path, len(file.edits_history)
-
-
-def analyze_session(workspace_change_history: WorkspaceChangeHistory):
-    pass
 
 
 def load_last_commit_history(commit_data_path: Path) -> WorkspaceChangeHistory:
@@ -126,13 +109,6 @@ def get_modified_decls(decls_before: list[Decl], decls_after: list[Decl]) -> lis
         if decls_before_dict[name].content != decls_after_dict[name].content
     }
     return [decls_after_dict[name] for name in modified_decl_names]
-
-
-def to_client_range(range: EditRange) -> Range:
-    return Range(
-        start=Position(line=range.start.line, character=range.start.character),
-        end=Position(line=range.end.line, character=range.end.character),
-    )
 
 
 def find_edit_decls(decls: list[Decl], edit: Edit) -> list[Decl]:

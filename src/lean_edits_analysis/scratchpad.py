@@ -146,18 +146,30 @@ class Scratchpad:
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(contents)
 
+    def _get_current_sha(self) -> str:
+        result = _run(["git", "rev-parse", "HEAD"], cwd=self.repo_path)
+        return result.stdout.strip()
+
     def _clone_and_checkout(self):
         self.owner_path.mkdir(parents=True, exist_ok=True)
         if not self.repo_path.exists():
             logger.info(f"Cloning {self.repo_url} into scratchpad")
             _run(["git", "clone", self.repo_url, self.repo_name], cwd=self.owner_path)
         else:
-            logger.info(f"Fetching latest changes for {self.repo_url}")
-            _run(["git", "fetch"], cwd=self.repo_path)
-
-        assert self.repo_path.exists(), f"Failed to clone repo to {self.repo_path}"
-        _run(["git", "restore", "."], cwd=self.repo_path)
-        _run(["git", "checkout", self.commit_sha], cwd=self.repo_path)
+            sha = self._get_current_sha()
+            if sha != self.commit_sha:
+                logger.info(f"Fetching latest changes for {self.repo_url}")
+                _run(["git", "fetch"], cwd=self.repo_path)
+                assert (
+                    self.repo_path.exists()
+                ), f"Failed to clone repo to {self.repo_path}"
+                _run(["git", "restore", "."], cwd=self.repo_path)
+                _run(["git", "checkout", self.commit_sha], cwd=self.repo_path)
+            sha = self._get_current_sha()
+            assert (
+                sha == self.commit_sha
+            ), f"Failed to checkout {self.commit_sha} for {self.repo_url}, currently at {sha}"
+        logger.info(f"Checked out {self.repo_url} at commit {self.commit_sha}")
 
     def _add_instrumentation(self):
         lean_toolchain_path = self.repo_path / "lean-toolchain"
@@ -204,8 +216,11 @@ class Scratchpad:
             f"Built {self.repo_url} at commit {self.commit_sha}. Success: {result.returncode == 0}"
         )
 
+    def _is_set_up(self) -> bool:
+        pass
+
     def setup(self):
-        self._clone_and_checkout()
+        self._clone_and_checkout()  # Idempotent
         self._add_instrumentation()
         self._lake_update()
         self._lake_build()
