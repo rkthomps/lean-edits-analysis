@@ -9,8 +9,11 @@ wheels/
 # Virtual environments
 .venv
 
+# Locks
+/locks
+
 # Data
-/data/
+/data
 /scratchpad/
 /cache/
 
