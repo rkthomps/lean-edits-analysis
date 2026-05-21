@@ -1,32 +1,14 @@
 import logging
-from typing import Iterable, Optional
+from typing import Iterable
 from pathlib import Path
-from dataclasses import dataclass
 
 from edit_data.types import (
-    Edit,
-    Range as EditRange,
     WorkspaceChangeHistory,
 )
 from edit_data.zip_edits import load_workspace_history
-from edit_data.edits import get_version_at_edit
-
 
 from lean_edits_analysis.common import DATA_LOC
 from lean_edits_analysis.scratchpad import Scratchpad
-
-from lean_client.client import (
-    FindTheoremsRequest,
-    FindTheoremsResponse,
-    FindDeclsRequest,
-    FindDeclsResponse,
-    Decl,
-    LeanClient,
-    Range,
-    Position,
-)
-
-from lean_edits_analysis.util import to_client_range
 
 logger = logging.getLogger(__name__)
 
@@ -51,110 +33,28 @@ def load_last_commit_history(commit_data_path: Path) -> WorkspaceChangeHistory:
     return load_workspace_history(latest_upload)
 
 
-def load_session(
-    repo_owner: str, repo_name: str, commit_sha: str
-) -> WorkspaceChangeHistory:
+def get_repo_commits(repo_owner: str, repo_name: str) -> list[str]:
+    commits: list[str] = []
     for workspace_data in DATA_LOC.iterdir():
         if repo_owner not in workspace_data.name:
             continue
         if repo_name not in workspace_data.name:
             continue
         for commit_data in workspace_data.iterdir():
-            if commit_sha == commit_data.name:
-                return load_last_commit_history(commit_data)
-    raise ValueError(
-        f"Could not find session for repo {repo_owner}/{repo_name} at commit {commit_sha}"
-    )
+            commits.append(commit_data.name)
+    return commits
 
 
-def get_decls(
-    client: LeanClient, scratchpad: Scratchpad, file_relpath: Path
-) -> list[Decl]:
-    file_path = (scratchpad.repo_path / file_relpath).resolve()
-    file_uri = file_path.as_uri()
-    response = client.send_request(FindDeclsRequest(uri=file_uri))
-    assert isinstance(
-        response, FindDeclsResponse
-    ), f"Expected FindDeclsResponse, got {type(response)}"
-    return response.decls
-
-
-def get_added_decls(decls_before: list[Decl], decls_after: list[Decl]) -> list[Decl]:
-    named_decls_before = [d for d in decls_before if d.name is not None]
-    named_decls_after = [d for d in decls_after if d.name is not None]
-    decls_before_dict = {d.name: d for d in named_decls_before}
-    decls_after_dict = {d.name: d for d in named_decls_after}
-    added_decl_names = set(decls_after_dict.keys()) - set(decls_before_dict.keys())
-    return [decls_after_dict[name] for name in added_decl_names]
-
-
-def get_removed_decls(decls_before: list[Decl], decls_after: list[Decl]) -> list[Decl]:
-    named_decls_before = [d for d in decls_before if d.name is not None]
-    named_decls_after = [d for d in decls_after if d.name is not None]
-    decls_before_dict = {d.name: d for d in named_decls_before}
-    decls_after_dict = {d.name: d for d in named_decls_after}
-    removed_decl_names = set(decls_before_dict.keys()) - set(decls_after_dict.keys())
-    return [decls_before_dict[name] for name in removed_decl_names]
-
-
-def get_modified_decls(decls_before: list[Decl], decls_after: list[Decl]) -> list[Decl]:
-    named_decls_before = [d for d in decls_before if d.name is not None]
-    named_decls_after = [d for d in decls_after if d.name is not None]
-    decls_before_dict = {d.name: d for d in named_decls_before}
-    decls_after_dict = {d.name: d for d in named_decls_after}
-    common_decl_names = set(decls_before_dict.keys()) & set(decls_after_dict.keys())
-    modified_decl_names = {
-        name
-        for name in common_decl_names
-        if decls_before_dict[name].content != decls_after_dict[name].content
-    }
-    return [decls_after_dict[name] for name in modified_decl_names]
-
-
-def find_edit_decls(decls: list[Decl], edit: Edit) -> list[Decl]:
-    """
-    Find the decls that overlap with the given edit.
-    TODO: This is currently wrong. Need to make each change then check.
-    """
-    overlapping_decls: list[Decl] = []
-    for decl in decls:
-        for change in edit.changes:
-            if decl.range.intersect(to_client_range(change.range)):
-                overlapping_decls.append(decl)
-                break
-    return overlapping_decls
-
-
-def replay_edits_single_file(
-    scratchpad: Scratchpad, session: WorkspaceChangeHistory, file: Path
-) -> dict[str, list[Edit]]:
-    """
-    Beginning assumption:
-    - other files don't change.
-    - when other files change, we need to restart the language server
-    - TODO: write a check for other files changing.
-    """
-    decl_edits: dict[str, list[Edit]] = {}
-    for edit_idx, prev_edit_info, edit, edit_info in iter_edits_with_info(
-        scratchpad, session, file
-    ):
-        edit_decls = find_edit_decls(prev_edit_info.decls, edit)
-        for decl in edit_decls:
-            if decl.name is None:
-                continue
-            if decl.name not in decl_edits:
-                decl_edits[decl.name] = []
-            decl_edits[decl.name].append(edit)
-        if edit_idx % 25 == 0:
-            logger.info(f"Processed {edit_idx} edits for file {file}")
-            logger.info(
-                f"Current decl edits: { {decl_name: len(edits) for decl_name, edits in decl_edits.items()} }"
-            )
-    return decl_edits
-
-
-def show_decl(decl: Decl) -> str:
-    return f"{decl.name} ({decl.info.kind})"
+def load_matching_sessions(
+    repo_owner: str, repo_name: str
+) -> Iterable[WorkspaceChangeHistory]:
+    for workspace_data in DATA_LOC.iterdir():
+        if repo_owner not in workspace_data.name:
+            continue
+        if repo_name not in workspace_data.name:
+            continue
+        for commit_data in workspace_data.iterdir():
+            yield load_last_commit_history(commit_data)
 
 
 def debug_session():

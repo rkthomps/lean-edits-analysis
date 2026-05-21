@@ -7,8 +7,10 @@ from pydantic import BaseModel
 from pathlib import Path
 
 from lean_edits_analysis.scratchpad import Scratchpad
+from lean_edits_analysis.data import load_matching_sessions, get_repo_commits
+from lean_edits_analysis.util import git_parts_from_metadata
 
-from edit_data.types import Edit, WorkspaceChangeHistory
+from edit_data.types import Edit, WorkspaceChangeHistory, GitChangeMetadata
 from edit_data.edits import get_version_at_edit
 
 from lean_client.client import (
@@ -186,14 +188,29 @@ class EditInfoCache(BaseModel):
         )
         return cache
 
+    def _get_number_of_edits_in_cache(self) -> int:
+        if not self.cache_loc.exists():
+            return 0
+        if not self.prev_edit_info_loc.exists():
+            return 0
+        if not self.edit_infos_loc.exists():
+            return 0
+        with self.edit_infos_loc.open() as f:
+            num_cached_edits = sum(1 for _ in f)
+        return num_cached_edits
+
     def create(self, scratchpad: Scratchpad, session: WorkspaceChangeHistory) -> None:
-        self.cache_loc.mkdir(parents=True)
+        existing_num_edits = self._get_number_of_edits_in_cache()
+        self.cache_loc.mkdir(parents=True, exist_ok=True)
+        logger.info(
+            f"Found {existing_num_edits} cached edits for file {self.file}. Creating cache starting from edit {existing_num_edits}"
+        )
         with (
-            self.prev_edit_info_loc.open("w") as prev_edit_info_file,
-            self.edit_infos_loc.open("w") as edit_infos_file,
+            self.prev_edit_info_loc.open("a") as prev_edit_info_file,
+            self.edit_infos_loc.open("a") as edit_infos_file,
         ):
             for edit_idx, prev_edit_info, edit, edit_info in iter_edits_with_info(
-                scratchpad, session, self.file
+                scratchpad, session, self.file, edit_start_idx=existing_num_edits
             ):
                 if edit_idx % 25 == 0:
                     logger.info(
@@ -209,40 +226,97 @@ def cli():
     pass
 
 
+def _cache_session_file(
+    scratchpad: Scratchpad, session: WorkspaceChangeHistory, file: Path
+) -> None:
+    cache = EditInfoCache.get_cache(scratchpad, file)
+    cache.create(scratchpad, session)
+
+
 def _get_repo_lock(repo_owner: str, repo_name: str) -> FileLock:
     repo_lock_path = LOCKS_LOC / repo_owner / repo_name / "repo.lock"
     repo_lock_path.parent.mkdir(parents=True, exist_ok=True)
     return FileLock(repo_lock_path)
 
 
-def _cache_session_file(repo_owner: str, repo_name: str, commit_sha: str, file: Path):
-    pass
+def _count_session_edits(session: WorkspaceChangeHistory) -> int:
+    num_edits = 0
+    for file in session.files:
+        num_edits += len(file.edits_history)
+    return num_edits
 
 
-@cli.command()
-def cache_session_file(repo_owner: str, repo_name: str, commit_sha: str, file: Path):
-    pass
-
-
-def _cache_session():
-    pass
-
-
-@cli.command()
-def cache_session(repo_owner: str, repo_name: str, commit_sha: str):
+def _need_to_cache(
+    repo_owner: str, repo_name: str, commit_sha: str, session: WorkspaceChangeHistory
+) -> bool:
     scratchpad = Scratchpad(
         repo_owner=repo_owner, repo_name=repo_name, commit_sha=commit_sha
     )
+    for file in session.files:
+        cache = EditInfoCache.get_cache(scratchpad, file.path)
+        if not cache.exists_and_has_correct_num_edits(session, file.path, scratchpad):
+            return True
+    return False
 
 
-def _cache_repo():
-    pass
+def _cache_session(
+    repo_owner: str, repo_name: str, commit_sha: str, session: WorkspaceChangeHistory
+):
+    scratchpad = Scratchpad(
+        repo_owner=repo_owner, repo_name=repo_name, commit_sha=commit_sha
+    )
+    with _get_repo_lock(repo_owner, repo_name) as f:
+        scratchpad.setup()
+        for file in session.files:
+            _cache_session_file(scratchpad, session, file.path)
+
+
+def _cache_repo(repo_owner: str, repo_name: str):
+    for session in load_matching_sessions(repo_owner, repo_name):
+        if not isinstance(session.metadata, GitChangeMetadata):
+            logger.warning(
+                f"Skipping session for edits at workspace {session.metadata.workspace_name}. Local metadata."
+            )
+            continue
+        git_parts = git_parts_from_metadata(session.metadata)
+        if git_parts is None:
+            logger.warning(
+                f"Skipping session for edits at workspace {session.metadata.workspace_name}. Unable to parse git parts from metadata."
+            )
+            continue
+        num_files = len(session.files)
+        num_edits = _count_session_edits(session)
+        logger.info(
+            f"Processing session for {git_parts.owner}/{git_parts.repo} at commit {session.metadata.head} with {num_files} files and {num_edits} edits"
+        )
+        if not _need_to_cache(
+            repo_owner=git_parts.owner,
+            repo_name=git_parts.repo,
+            commit_sha=session.metadata.head,
+            session=session,
+        ):
+            logger.info(
+                f"Cache already exists for {git_parts.owner}/{git_parts.repo} at commit {session.metadata.head}. Skipping caching."
+            )
+            continue
+        logger.info(
+            f"Caching session for {git_parts.owner}/{git_parts.repo} at commit {session.metadata.head}"
+        )
+        _cache_session(git_parts.owner, git_parts.repo, session.metadata.head, session)
 
 
 @cli.command()
-def cache_repo(repo_owner: str, repo_name: str):
-    pass
+@click.argument("repo_owner")
+@click.argument("repo_name")
+def repo(repo_owner: str, repo_name: str):
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    )
+    logging.getLogger("lean_edits_analysis").setLevel(logging.INFO)
+    logging.getLogger("__name__").setLevel(logging.INFO)
+    _cache_repo(repo_owner, repo_name)
 
 
 if __name__ == "__main__":
-    pass
+    cli()

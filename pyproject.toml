@@ -17,6 +17,7 @@ dependencies = [
 [project.scripts]
 lean-edits-analysis = "lean_edits_analysis:main"
 show-session = "lean_edits_analysis.analyze_session:debug_session"
+cache-edits = "lean_edits_analysis.edit_info:cli"
 
 [build-system]
 requires = ["uv_build>=0.8.22,<0.9.0"]

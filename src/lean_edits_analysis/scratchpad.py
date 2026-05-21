@@ -21,12 +21,19 @@ def _get_compatible_version(lean_toolchain: str) -> str:
     """
     See https://github.com/rkthomps/llm-instruments for compatibility
     """
-    toolchain_match = re.match(r"^leanprover/lean4:v4\.(\d\d)\.(\d)$", lean_toolchain)
+    toolchain_match = re.match(
+        r"^leanprover/lean4:v4\.(\d\d)\.(\d)-(rc\d+)?$", lean_toolchain
+    )
     if not toolchain_match:
+        nightly_match = re.match(
+            r"^leanprover/lean4:nightly-\d{4}-\d{2}-\d{2}$", lean_toolchain
+        )
+        if nightly_match:
+            return "main"
         raise ValueError(
             f"Unexpected lean toolchain format: {lean_toolchain}. Expected format: 'leanprover/lean4:v4.xx.x'"
         )
-    minor_version_str, _ = toolchain_match.groups()
+    minor_version_str = toolchain_match.groups()[0]
     minor_version = int(minor_version_str)
     if minor_version < 10:
         raise ValueError(
@@ -92,18 +99,39 @@ def _add_instruments_to_lakefile_toml(
 
 
 def _run(
-    command: list[str], cwd: Optional[Path] = None, check: bool = True
+    command: list[str], cwd: Optional[Path] = None, check: bool = True, stream=False
 ) -> subprocess.CompletedProcess[str]:
     """Returns true if the command ran successfully, false otherwise."""
     try:
-        output = subprocess.run(
-            command,
-            cwd=cwd,
-            check=check,
-            capture_output=True,
-            text=True,
-        )
-        return output
+        if not stream:
+            output = subprocess.run(
+                command,
+                cwd=cwd,
+                check=check,
+                capture_output=True,
+                text=True,
+            )
+            return output
+        else:
+            logger.info(f"Running command: {' '.join(command)} in {cwd}")
+            process = subprocess.Popen(
+                command,
+                cwd=cwd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=1,
+                text=True,
+            )
+            lines: list[str] = []
+            assert process.stdout is not None  # for type checker
+            for line in process.stdout:
+                lines.append(line)
+                logger.info(f"  {line.strip()}")
+            rc = process.wait()
+            output = "".join(lines)
+            if check and rc != 0:
+                raise subprocess.CalledProcessError(rc, command, output=output)
+            return subprocess.CompletedProcess(command, rc, stdout=output)
     except subprocess.CalledProcessError as e:
         logger.exception(f"Command '{' '.join(command)}' failed: {e}")
         raise
@@ -155,20 +183,19 @@ class Scratchpad:
         if not self.repo_path.exists():
             logger.info(f"Cloning {self.repo_url} into scratchpad")
             _run(["git", "clone", self.repo_url, self.repo_name], cwd=self.owner_path)
-        else:
-            sha = self._get_current_sha()
-            if sha != self.commit_sha:
-                logger.info(f"Fetching latest changes for {self.repo_url}")
-                _run(["git", "fetch"], cwd=self.repo_path)
-                assert (
-                    self.repo_path.exists()
-                ), f"Failed to clone repo to {self.repo_path}"
-                _run(["git", "restore", "."], cwd=self.repo_path)
-                _run(["git", "checkout", self.commit_sha], cwd=self.repo_path)
-            sha = self._get_current_sha()
-            assert (
-                sha == self.commit_sha
-            ), f"Failed to checkout {self.commit_sha} for {self.repo_url}, currently at {sha}"
+
+        assert self.repo_path.exists(), f"Failed to clone repo to {self.repo_path}"
+        sha = self._get_current_sha()
+        if sha != self.commit_sha:
+            logger.info(f"Fetching commit {self.commit_sha} for {self.repo_url}")
+            _run(["git", "fetch", "origin", self.commit_sha], cwd=self.repo_path)
+            assert self.repo_path.exists(), f"Failed to clone repo to {self.repo_path}"
+            _run(["git", "restore", "."], cwd=self.repo_path)
+            _run(["git", "checkout", self.commit_sha], cwd=self.repo_path)
+        sha = self._get_current_sha()
+        assert (
+            sha == self.commit_sha
+        ), f"Failed to checkout {self.commit_sha} for {self.repo_url}, currently at {sha}"
         logger.info(f"Checked out {self.repo_url} at commit {self.commit_sha}")
 
     def _add_instrumentation(self):
@@ -194,7 +221,7 @@ class Scratchpad:
         )
 
     def _lake_update(self):
-        _run(["lake", "update"], cwd=self.repo_path)
+        _run(["lake", "update", "llm-instruments"], cwd=self.repo_path, stream=True)
         logger.info(
             f"Ran 'lake update' for {self.repo_url} at commit {self.commit_sha}"
         )
@@ -211,13 +238,13 @@ class Scratchpad:
         logger.info(
             f"Building {self.repo_url} at commit {self.commit_sha} with llm-instruments"
         )
-        result = _run(["lake", "build"], cwd=self.repo_path, check=False)
-        logger.info(
-            f"Built {self.repo_url} at commit {self.commit_sha}. Success: {result.returncode == 0}"
-        )
-
-    def _is_set_up(self) -> bool:
-        pass
+        result = _run(["lake", "build"], cwd=self.repo_path, check=False, stream=True)
+        if result.returncode != 0:
+            logger.error(
+                f"Build failed for {self.repo_url} at commit {self.commit_sha}. Stderr:\n{result.stderr}"
+            )
+        else:
+            logger.info(f"Built {self.repo_url} at commit {self.commit_sha}.")
 
     def setup(self):
         self._clone_and_checkout()  # Idempotent
