@@ -94,6 +94,14 @@ class RepoMetadata:
     repo_name: str
     sessions: list[SessionMetadata]
 
+    @property
+    def total_edits(self) -> int:
+        return sum(session.edits for session in self.sessions)
+
+    @property
+    def total_sessions(self) -> int:
+        return len(self.sessions)
+
 
 def find_repo_metadata() -> list[RepoMetadata]:
     repos: dict[tuple[str, str], list[SessionMetadata]] = {}

@@ -6,7 +6,7 @@ from typing import Iterable, Optional
 from pydantic import BaseModel
 from pathlib import Path
 
-from lean_edits_analysis.scratchpad import Scratchpad
+from lean_edits_analysis.scratchpad import Scratchpad, ScratchpadError
 from lean_edits_analysis.data import (
     RepoMetadata,
     load_matching_sessions,
@@ -244,7 +244,7 @@ def _cache_session_file(
     cache.create(scratchpad, session)
 
 
-def _get_repo_lock(repo_owner: str, repo_name: str) -> FileLock:
+def get_repo_lock(repo_owner: str, repo_name: str) -> FileLock:
     repo_lock_path = LOCKS_LOC / repo_owner / repo_name / "repo.lock"
     repo_lock_path.parent.mkdir(parents=True, exist_ok=True)
     return FileLock(repo_lock_path)
@@ -269,13 +269,15 @@ def _cache_session(
     scratchpad = Scratchpad(
         repo_owner=repo_owner, repo_name=repo_name, commit_sha=commit_sha
     )
-    with _get_repo_lock(repo_owner, repo_name) as f:
+    with get_repo_lock(repo_owner, repo_name) as f:
         scratchpad.setup()
         for file in session.files:
             _cache_session_file(scratchpad, session, file.path)
 
 
-def _cache_repo(repo_owner: str, repo_name: str):
+def cache_repo_iter(
+    repo_owner: str, repo_name: str
+) -> Iterable[tuple[WorkspaceChangeHistory, bool]]:
     for session in load_matching_sessions(repo_owner, repo_name):
         if not isinstance(session.metadata, GitChangeMetadata):
             logger.warning(
@@ -293,20 +295,43 @@ def _cache_repo(repo_owner: str, repo_name: str):
         logger.info(
             f"Processing session for {git_parts.owner}/{git_parts.repo} at commit {session.metadata.head} with {num_files} files and {num_edits} edits"
         )
-        if not _need_to_cache(
-            repo_owner=git_parts.owner,
-            repo_name=git_parts.repo,
-            commit_sha=session.metadata.head,
-            session=session,
-        ):
+        try:
+            if not _need_to_cache(
+                repo_owner=git_parts.owner,
+                repo_name=git_parts.repo,
+                commit_sha=session.metadata.head,
+                session=session,
+            ):
+                logger.info(
+                    f"Cache already exists for {git_parts.owner}/{git_parts.repo} at commit {session.metadata.head}. Skipping caching."
+                )
+                yield session, True
+                continue
             logger.info(
-                f"Cache already exists for {git_parts.owner}/{git_parts.repo} at commit {session.metadata.head}. Skipping caching."
+                f"Caching session for {git_parts.owner}/{git_parts.repo} at commit {session.metadata.head}"
             )
-            continue
+            _cache_session(
+                git_parts.owner, git_parts.repo, session.metadata.head, session
+            )
+            yield session, True
+        except ScratchpadError as e:
+            logger.error(
+                f"Failed to cache session for {git_parts.owner}/{git_parts.repo} at commit {session.metadata.head} due to scratchpad error: {e.message}"
+            )
+            yield session, False
+
+        except Exception as e:
+            logger.exception(
+                f"Failed to cache session for {git_parts.owner}/{git_parts.repo} at commit {session.metadata.head}. Error: {e}"
+            )
+            yield session, False
+
+
+def _cache_repo(repo_owner: str, repo_name: str):
+    for session, success in cache_repo_iter(repo_owner, repo_name):
         logger.info(
-            f"Caching session for {git_parts.owner}/{git_parts.repo} at commit {session.metadata.head}"
+            f"Finished caching session for {repo_owner}/{repo_name} with success={success}"
         )
-        _cache_session(git_parts.owner, git_parts.repo, session.metadata.head, session)
 
 
 @cli.command()
@@ -320,17 +345,6 @@ def repo(repo_owner: str, repo_name: str):
     logging.getLogger("lean_edits_analysis").setLevel(logging.INFO)
     logging.getLogger(__name__).setLevel(logging.INFO)
     _cache_repo(repo_owner, repo_name)
-
-
-def _total_num_sessions(repo_metadata: RepoMetadata) -> int:
-    return len(repo_metadata.sessions)
-
-
-def _total_num_edits(repo_metadata: RepoMetadata) -> int:
-    total_edits = 0
-    for session in repo_metadata.sessions:
-        total_edits += session.edits
-    return total_edits
 
 
 # Parcly-Taxel
@@ -348,13 +362,13 @@ def everything(workers: int):
     logging.getLogger(__name__).setLevel(logging.INFO)
     repo_metadata = find_repo_metadata()
     logger.info(f"Found metadata for {len(repo_metadata)} repos")
-    total_sessions = sum(_total_num_sessions(repo) for repo in repo_metadata)
-    total_edits = sum(_total_num_edits(repo) for repo in repo_metadata)
+    total_sessions = sum(repo.total_sessions for repo in repo_metadata)
+    total_edits = sum(repo.total_edits for repo in repo_metadata)
     logger.info(f"Total sessions: {total_sessions}")
     logger.info(f"Total edits: {total_edits}")
     for repo in repo_metadata:
         logger.info(
-            f"Repo {repo.repo_owner}/{repo.repo_name} has {len(repo.sessions)} sessions and {_total_num_edits(repo)} edits"
+            f"Repo {repo.repo_owner}/{repo.repo_name} has {len(repo.sessions)} sessions and {repo.total_edits} edits"
         )
 
     # for repo in repo_metadata:

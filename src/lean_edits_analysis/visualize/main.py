@@ -2,81 +2,38 @@ import logging
 import click
 from pydantic import BaseModel
 from pathlib import Path
+from dataclasses import dataclass
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from edit_data.types import WorkspaceChangeHistory
+from edit_data.types import WorkspaceChangeHistory, GitChangeMetadata
 
-from lean_edits_analysis.data import load_matching_commit_sessions
+from lean_edits_analysis.data import (
+    RepoMetadata,
+    load_matching_commit_sessions,
+    find_repo_metadata,
+)
 from lean_edits_analysis.util import git_url_parts_from_session
 from lean_edits_analysis.scratchpad import Scratchpad
-from lean_edits_analysis.edit_info import EditInfoCache
+from lean_edits_analysis.edit_info import EditInfoCache, cache_repo_iter, get_repo_lock
 
 from lean_edits_analysis.visualize.build import write_session_data
 from lean_edits_analysis.visualize.file_heat_map import FileHeatmapInfo
 from lean_edits_analysis.visualize.decl_heat_map import DeclHeatmapInfo
 
-
-class SessionManifest(BaseModel):
-    owner: str
-    repo: str
-    sha: str
-
-    @property
-    def id(self) -> str:
-        return f"{self.owner}__{self.repo}__{self.sha[:7]}"
-
-    @property
-    def title(self) -> str:
-        return f"{self.owner}/{self.repo} @ {self.sha[:7]}"
-
-    @property
-    def file_name(self) -> str:
-        return f"{self.id}.json"
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "title": self.title,
-            "owner": self.owner,
-            "repo": self.repo,
-            "sha": self.sha,
-            "file": self.file_name,
-        }
+logger = logging.getLogger(__name__)
 
 
-class Manifest(BaseModel):
-    sessions: list[SessionManifest]
-
-    def to_dict(self) -> dict:
-        return {"sessions": [session.to_dict() for session in self.sessions]}
-
-
-def file_heatmap_data(
-    workspace_change_history: WorkspaceChangeHistory,
-    scratchpad: Scratchpad,
-    output_path: Path,
-) -> FileHeatmapInfo:
-    change_events = FileHeatmapInfo.build(workspace_change_history, scratchpad)
-    with open(output_path, "w") as fout:
-        fout.write(change_events.model_dump_json())
-    return change_events
-
-
-def decl_heatmap_data(
-    workspace_change_history: WorkspaceChangeHistory,
-    scratchpad: Scratchpad,
-    output_path: Path,
-):
-    change_events = DeclHeatmapInfo.build(workspace_change_history, scratchpad)
-    with open(output_path, "w") as fout:
-        fout.write(change_events.model_dump_json())
-    return change_events
+@click.group()
+def cli():
+    pass
 
 
 @click.command()
 @click.argument("repo_owner", type=str)
 @click.argument("repo_name", type=str)
 @click.argument("commit_sha", type=str)
-def main(
+def commit(
     repo_owner: str,
     repo_name: str,
     commit_sha: str,
@@ -105,16 +62,9 @@ def main(
         commit_sha=commit_sha,
     )
 
-    file_heatmap = file_heatmap_data(
-        workspace_change_history=session,
-        scratchpad=scratchpad,
-        output_path=Path("file_heatmap_data.json"),
-    )
-    decl_heatmap = decl_heatmap_data(
-        workspace_change_history=session,
-        scratchpad=scratchpad,
-        output_path=Path("decl_heatmap_data.json"),
-    )
+    file_heatmap = FileHeatmapInfo.build(session, scratchpad)
+    decl_heatmap = DeclHeatmapInfo.build(session, scratchpad)
+
     write_session_data(
         owner=git_url_parts.owner,
         repo=git_url_parts.repo,
@@ -124,5 +74,103 @@ def main(
     )
 
 
+def _cache_and_show_repo(repo_metadata: RepoMetadata):
+    for session, success in cache_repo_iter(
+        repo_metadata.repo_owner, repo_metadata.repo_name
+    ):
+        logger.info(
+            f"Finished caching session for {repo_metadata.repo_owner}/{repo_metadata.repo_name} with success={success}"
+        )
+        if success:
+            with get_repo_lock(repo_metadata.repo_owner, repo_metadata.repo_name) as f:
+                assert isinstance(session.metadata, GitChangeMetadata)
+                scratchpad = Scratchpad(
+                    repo_owner=repo_metadata.repo_owner,
+                    repo_name=repo_metadata.repo_name,
+                    commit_sha=session.metadata.head,
+                )
+                logger.info(
+                    f"Generating file heatmap for {repo_metadata.repo_owner}/{repo_metadata.repo_name} at commit {session.metadata.head}"
+                )
+                file_heatmap = FileHeatmapInfo.build(session, scratchpad)
+                logger.info(
+                    f"Generating decl heatmap for {repo_metadata.repo_owner}/{repo_metadata.repo_name} at commit {session.metadata.head}"
+                )
+                decl_heatmap = DeclHeatmapInfo.build(session, scratchpad)
+                logger.info(
+                    f"Writing session data for {repo_metadata.repo_owner}/{repo_metadata.repo_name} at commit {session.metadata.head}"
+                )
+                write_session_data(
+                    owner=repo_metadata.repo_owner,
+                    repo=repo_metadata.repo_name,
+                    sha=session.metadata.head,
+                    file_heatmap=file_heatmap,
+                    decl_heatmap=decl_heatmap,
+                )
+                logger.info(
+                    f"Finished processing session for {repo_metadata.repo_owner}/{repo_metadata.repo_name} at commit {session.metadata.head}"
+                )
+
+
+def _setup_logging():
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    )
+
+    # Formatter
+    formatter = logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
+
+    # File handler
+    date_str = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    Path("logs").mkdir(exist_ok=True)
+    fh = logging.FileHandler(f"logs/cache-and-show-{date_str}.log")
+    fh.setLevel(logging.INFO)
+    fh.setFormatter(formatter)
+
+    # Stdout handler
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(formatter)
+
+    # Add both to root logger
+    root = logging.getLogger()
+    root.addHandler(fh)
+    root.addHandler(ch)
+
+    # Set specific loggers
+    logging.getLogger("lean_edits_analysis").setLevel(logging.INFO)
+    logging.getLogger(__name__).setLevel(logging.INFO)
+
+
+@cli.command()
+@click.option(
+    "--workers",
+    default=1,
+    help="Number of worker threads to use for caching and processing.",
+)
+def cache_and_show(workers: int):
+    _setup_logging()
+    repo_metadata = find_repo_metadata()
+
+    for repo in repo_metadata:
+        logger.info(
+            f"Repo {repo.repo_owner}/{repo.repo_name} has {len(repo.sessions)} sessions and {repo.total_edits} edits"
+        )
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(_cache_and_show_repo, repo): repo for repo in repo_metadata
+        }
+        for future in as_completed(futures):
+            repo = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                logger.exception(
+                    f"Error processing {repo.repo_owner}/{repo.repo_name}: {e}"
+                )
+
+
 if __name__ == "__main__":
-    main()
+    cli()

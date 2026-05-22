@@ -10,6 +10,11 @@ from lean_edits_analysis.common import SCRATCHPAD_LOC
 
 logger = logging.getLogger(__name__)
 
+
+class ScratchpadError(Exception):
+    message: str
+
+
 _EXPECTED_MODIFIED_FILES: list[Path] = [
     Path("lakefile.toml"),
     Path("lakefile.lean"),
@@ -30,13 +35,13 @@ def _get_compatible_version(lean_toolchain: str) -> str:
         )
         if nightly_match:
             return "main"
-        raise ValueError(
+        raise ScratchpadError(
             f"Unexpected lean toolchain format: {lean_toolchain}. Expected format: 'leanprover/lean4:v4.xx.x'"
         )
     minor_version_str = toolchain_match.groups()[0]
     minor_version = int(minor_version_str)
     if minor_version < 10:
-        raise ValueError(
+        raise ScratchpadError(
             f"Unsupported lean version {lean_toolchain}. Expected  >= v4.10."
         )
     if minor_version < 18:
@@ -201,7 +206,7 @@ class Scratchpad:
     def _add_instrumentation(self):
         lean_toolchain_path = self.repo_path / "lean-toolchain"
         if not lean_toolchain_path.exists():
-            raise ValueError(f"lean-toolchain file not found in {self.repo_path}")
+            raise ScratchpadError(f"lean-toolchain file not found in {self.repo_path}")
         compatible_branch = _get_llm_instruments_branch(lean_toolchain_path)
         logger.info(
             f"Using llm-instruments branch {compatible_branch} for lean toolchain in {self.repo_url}"
@@ -216,7 +221,7 @@ class Scratchpad:
             logger.info(f"Adding llm-instruments to {lakefile_lean}")
             _add_instruments_to_lakefile_lean(lakefile_lean, compatible_branch)
             return
-        raise ValueError(
+        raise ScratchpadError(
             f"Could not find lakefile.toml or lakefile.lean in {self.repo_path}"
         )
 
