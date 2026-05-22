@@ -12,6 +12,9 @@ wheels/
 # Locks
 /locks
 
+# Logs
+/logs
+
 # Data
 /data
 /scratchpad/
