@@ -7,8 +7,13 @@ from pydantic import BaseModel
 from pathlib import Path
 
 from lean_edits_analysis.scratchpad import Scratchpad
-from lean_edits_analysis.data import load_matching_sessions, get_repo_commits
-from lean_edits_analysis.util import git_parts_from_metadata
+from lean_edits_analysis.data import (
+    RepoMetadata,
+    load_matching_sessions,
+    get_repo_commits,
+    find_repo_metadata,
+)
+from lean_edits_analysis.util import git_parts_from_metadata, count_session_edits
 
 from edit_data.types import Edit, WorkspaceChangeHistory, GitChangeMetadata
 from edit_data.edits import get_version_at_edit
@@ -47,10 +52,10 @@ def _get_changed_files(
     return changed_files
 
 
-def _gather_edit_info(client: LeanClient, file_uri: str) -> EditInfo:
-    decls = client.send_request(FindDeclsRequest(uri=file_uri))
+def _gather_edit_info(client: LeanClient, file_uri: str, timeout: int) -> EditInfo:
+    decls = client.send_request(FindDeclsRequest(uri=file_uri), timeout=timeout)
     assert isinstance(decls, FindDeclsResponse)
-    diagnostics = client.wait_for_diagnostics(file_uri)
+    diagnostics = client.wait_for_diagnostics(file_uri, timeout=timeout)
     edit_info = EditInfo(diagnostics=diagnostics.diagnostics, decls=decls.decls)
     return edit_info
 
@@ -60,24 +65,27 @@ def iter_edits_with_info(
     session: WorkspaceChangeHistory,
     file: Path,
     edit_start_idx: int = 0,
+    client_timeout: int = 240,
 ) -> Iterable[tuple[int, EditInfo, Edit, EditInfo]]:
     """ """
     full_file_path = scratchpad.repo_path / file
     file_uri = full_file_path.resolve().as_uri()
     file_history = session.get_dict()[file]
     previous_version: Optional[dict[Path, str]] = None
-    client = LeanClient.start(scratchpad.repo_path, instrument_server=True, timeout=5)
+    client = LeanClient.start(
+        scratchpad.repo_path, instrument_server=True, timeout=client_timeout
+    )
 
     # Initialize previous version
     if edit_start_idx == 0:
         scratchpad.restore()
         client.open_file(file_uri, full_file_path.read_text())
-        prev_edit_info = _gather_edit_info(client, file_uri)
+        prev_edit_info = _gather_edit_info(client, file_uri, client_timeout)
     else:
         prev_version = get_version_at_edit(file, session.get_dict(), edit_start_idx - 1)
         scratchpad.write_version(prev_version)
         client.open_file(file_uri, prev_version[file])
-        prev_edit_info = _gather_edit_info(client, file_uri)
+        prev_edit_info = _gather_edit_info(client, file_uri, client_timeout)
 
     try:
         for edit_idx in range(edit_start_idx, len(file_history.edits_history)):
@@ -92,12 +100,15 @@ def iter_edits_with_info(
             else:
                 client.change_file(file_uri, full_file_path.read_text())
 
-            decls = client.send_request(FindDeclsRequest(uri=file_uri))
+            decls = client.send_request(
+                FindDeclsRequest(uri=file_uri), timeout=client_timeout
+            )
             assert isinstance(decls, FindDeclsResponse)
-            diagnostics = client.wait_for_diagnostics(file_uri)
+            diagnostics = client.wait_for_diagnostics(file_uri, timeout=client_timeout)
             edit_info = EditInfo(diagnostics=diagnostics.diagnostics, decls=decls.decls)
             yield edit_idx, prev_edit_info, edit, edit_info
             prev_edit_info = edit_info
+
     finally:
         client.shutdown()
 
@@ -239,13 +250,6 @@ def _get_repo_lock(repo_owner: str, repo_name: str) -> FileLock:
     return FileLock(repo_lock_path)
 
 
-def _count_session_edits(session: WorkspaceChangeHistory) -> int:
-    num_edits = 0
-    for file in session.files:
-        num_edits += len(file.edits_history)
-    return num_edits
-
-
 def _need_to_cache(
     repo_owner: str, repo_name: str, commit_sha: str, session: WorkspaceChangeHistory
 ) -> bool:
@@ -285,7 +289,7 @@ def _cache_repo(repo_owner: str, repo_name: str):
             )
             continue
         num_files = len(session.files)
-        num_edits = _count_session_edits(session)
+        num_edits = count_session_edits(session)
         logger.info(
             f"Processing session for {git_parts.owner}/{git_parts.repo} at commit {session.metadata.head} with {num_files} files and {num_edits} edits"
         )
@@ -314,8 +318,50 @@ def repo(repo_owner: str, repo_name: str):
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
     logging.getLogger("lean_edits_analysis").setLevel(logging.INFO)
-    logging.getLogger("__name__").setLevel(logging.INFO)
+    logging.getLogger(__name__).setLevel(logging.INFO)
     _cache_repo(repo_owner, repo_name)
+
+
+def _total_num_sessions(repo_metadata: RepoMetadata) -> int:
+    return len(repo_metadata.sessions)
+
+
+def _total_num_edits(repo_metadata: RepoMetadata) -> int:
+    total_edits = 0
+    for session in repo_metadata.sessions:
+        total_edits += session.edits
+    return total_edits
+
+
+# Parcly-Taxel
+# TonelliShanks
+
+
+@cli.command()
+@click.option("--workers", default=1, help="Number of worker processes to use")
+def everything(workers: int):
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    )
+    logging.getLogger("lean_edits_analysis").setLevel(logging.INFO)
+    logging.getLogger(__name__).setLevel(logging.INFO)
+    repo_metadata = find_repo_metadata()
+    logger.info(f"Found metadata for {len(repo_metadata)} repos")
+    total_sessions = sum(_total_num_sessions(repo) for repo in repo_metadata)
+    total_edits = sum(_total_num_edits(repo) for repo in repo_metadata)
+    logger.info(f"Total sessions: {total_sessions}")
+    logger.info(f"Total edits: {total_edits}")
+    for repo in repo_metadata:
+        logger.info(
+            f"Repo {repo.repo_owner}/{repo.repo_name} has {len(repo.sessions)} sessions and {_total_num_edits(repo)} edits"
+        )
+
+    # for repo in repo_metadata:
+    #     logger.info(
+    #         f"Processing repo {repo.repo_owner}/{repo.repo_name} with {len(repo.sessions)} sessions and {_total_num_edits(repo)} edits"
+    #     )
+    #     _cache_repo(repo.repo_owner, repo.repo_name)
 
 
 if __name__ == "__main__":

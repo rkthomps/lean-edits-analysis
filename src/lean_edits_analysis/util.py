@@ -2,7 +2,12 @@ from typing import Optional
 import re
 from dataclasses import dataclass
 
-from edit_data.types import GitChangeMetadata, Range as EditRange, Remote
+from edit_data.types import (
+    GitChangeMetadata,
+    Range as EditRange,
+    Remote,
+    WorkspaceChangeHistory,
+)
 from lean_client.client import Range, Position
 
 
@@ -52,3 +57,18 @@ def git_parts_from_metadata(metadata: GitChangeMetadata) -> Optional[GitUrlParts
     if git_parts is None:
         return None
     return git_parts
+
+
+def git_url_parts_from_session(
+    session: WorkspaceChangeHistory,
+) -> Optional[GitUrlParts]:
+    if not isinstance(session.metadata, GitChangeMetadata):
+        return None
+    return git_parts_from_metadata(session.metadata)
+
+
+def count_session_edits(session: WorkspaceChangeHistory) -> int:
+    num_edits = 0
+    for file in session.files:
+        num_edits += len(file.edits_history)
+    return num_edits

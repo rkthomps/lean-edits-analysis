@@ -6,74 +6,128 @@ holding one view per visualization, then upserts ``manifest.json``. No HTML, no
 rendering — see ``viz/CONVENTIONS.md`` for the data contract.
 """
 
+import logging
+from typing import Literal, Union, Annotated
+
 import json
+from pydantic import BaseModel, Field
 from pathlib import Path
 
 from lean_edits_analysis.visualize.file_heat_map import FileHeatmapInfo
 from lean_edits_analysis.visualize.decl_heat_map import DeclHeatmapInfo
 
+logger = logging.getLogger(__name__)
+
 VIZ_DATA_LOC = Path("viz/data")
 
 
-def session_id(owner: str, repo: str, sha: str) -> str:
-    return f"{owner}__{repo}__{sha[:7]}"
+class SessionManifest(BaseModel):
+    owner: str
+    repo: str
+    sha: str
+
+    @property
+    def id(self) -> str:
+        return f"{self.owner}__{self.repo}__{self.sha[:7]}"
+
+    @property
+    def title(self) -> str:
+        return f"{self.owner}/{self.repo} @ {self.sha[:7]}"
+
+    @property
+    def file_name(self) -> str:
+        return f"{self.id}.json"
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "owner": self.owner,
+            "repo": self.repo,
+            "sha": self.sha,
+            "file": self.file_name,
+        }
+
+
+class Manifest(BaseModel):
+    sessions: list[SessionManifest]
+
+    def to_dict(self) -> dict:
+        return {"sessions": [session.to_dict() for session in self.sessions]}
+
+
+class FileHeatmapView(BaseModel):
+    kind: Literal["file_heatmap"] = "file_heatmap"
+    data: FileHeatmapInfo
+
+
+class DeclHeatmapView(BaseModel):
+    kind: Literal["decl_heatmap"] = "decl_heatmap"
+    data: DeclHeatmapInfo
+
+
+SessionView = Annotated[
+    Union[FileHeatmapView, DeclHeatmapView],
+    Field(discriminator="kind"),
+]
+
+
+class SessionData(BaseModel):
+    session: SessionManifest
+    views: list[SessionView]
+
+
+def _to_session_data(
+    owner: str,
+    repo: str,
+    sha: str,
+    file_heatmap: FileHeatmapInfo | None = None,
+    decl_heatmap: DeclHeatmapInfo | None = None,
+) -> SessionData:
+    views: list[SessionView] = []
+    if file_heatmap is not None:
+        views.append(FileHeatmapView(data=file_heatmap))
+    if decl_heatmap is not None:
+        views.append(DeclHeatmapView(data=decl_heatmap))
+
+    session_manifest = SessionManifest(owner=owner, repo=repo, sha=sha)
+    return SessionData(session=session_manifest, views=views)
+
+
+def _update_manifest(out_dir: Path) -> None:
+    session_manifests: list[SessionManifest] = []
+    for f in out_dir.glob("*.json"):
+        if f.name == "manifest.json":
+            continue
+        try:
+            session_data = SessionData.model_validate_json(f.read_text())
+            session_manifests.append(session_data.session)
+        except Exception as e:
+            logger.warning(f"Failed to parse session data from {f}: {e}")
+    manifest = Manifest(sessions=session_manifests)
+    manifest_loc = out_dir / "manifest.json"
+    with open(manifest_loc, "w") as fout:
+        fout.write(json.dumps(manifest.to_dict()))
+    logger.info(f"Wrote manifest to {manifest_loc}")
 
 
 def write_session_data(
     owner: str,
     repo: str,
     sha: str,
-    *,
     file_heatmap: FileHeatmapInfo | None = None,
     decl_heatmap: DeclHeatmapInfo | None = None,
-    title: str | None = None,
     out_dir: Path = VIZ_DATA_LOC,
-) -> Path:
-    """Write ``<session-id>.json`` and upsert ``manifest.json``. Returns the session file path.
-
-    Each provided heatmap becomes one view (in this order: file, then decl).
-    """
-    out_dir.mkdir(parents=True, exist_ok=True)
-    sid = session_id(owner, repo, sha)
-    file_name = f"{sid}.json"
-
-    views: list[dict] = []
-    if file_heatmap is not None:
-        views.append(
-            {"kind": "file_heatmap", "data": json.loads(file_heatmap.model_dump_json())}
-        )
-    if decl_heatmap is not None:
-        views.append(
-            {"kind": "decl_heatmap", "data": json.loads(decl_heatmap.model_dump_json())}
-        )
-
-    session = {
-        "session": {"owner": owner, "repo": repo, "sha": sha},
-        "views": views,
-    }
-    (out_dir / file_name).write_text(json.dumps(session, indent=2))
-
-    _upsert_manifest(
-        out_dir,
-        {
-            "id": sid,
-            "title": title or f"{owner}/{repo} @ {sha[:7]}",
-            "owner": owner,
-            "repo": repo,
-            "sha": sha,
-            "file": file_name,
-        },
+):
+    session_data = _to_session_data(
+        owner=owner,
+        repo=repo,
+        sha=sha,
+        file_heatmap=file_heatmap,
+        decl_heatmap=decl_heatmap,
     )
-    return out_dir / file_name
-
-
-def _upsert_manifest(out_dir: Path, entry: dict) -> None:
-    manifest_path = out_dir / "manifest.json"
-    manifest: dict = {"sessions": []}
-    if manifest_path.exists():
-        manifest = json.loads(manifest_path.read_text())
-
-    sessions = [s for s in manifest.get("sessions", []) if s.get("id") != entry["id"]]
-    sessions.append(entry)
-    sessions.sort(key=lambda s: s["id"])
-    manifest_path.write_text(json.dumps({"sessions": sessions}, indent=2))
+    out_loc = out_dir / session_data.session.file_name
+    with open(out_loc, "w") as fout:
+        fout.write(session_data.model_dump_json(indent=2))
+    logger.info(f"Wrote session data to {out_loc}")
+    _update_manifest(out_dir)

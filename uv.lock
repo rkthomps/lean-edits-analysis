@@ -62,7 +62,7 @@ wheels = [
 [[package]]
 name = "lean-client"
 version = "0.1.0"
-source = { git = "https://github.com/rkthomps/lean-client#2a4c564f0d45122cd60845fc1512ce812977b58a" }
+source = { git = "https://github.com/rkthomps/lean-client#58a6070cf8130b94f3fa5f1d3fb40d1761011e18" }
 dependencies = [
     { name = "psutil" },
     { name = "pydantic" },

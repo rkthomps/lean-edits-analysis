@@ -22,7 +22,7 @@ def _get_compatible_version(lean_toolchain: str) -> str:
     See https://github.com/rkthomps/llm-instruments for compatibility
     """
     toolchain_match = re.match(
-        r"^leanprover/lean4:v4\.(\d\d)\.(\d)-(rc\d+)?$", lean_toolchain
+        r"^leanprover/lean4:v4\.(\d\d)\.(\d)(-rc\d+)?$", lean_toolchain
     )
     if not toolchain_match:
         nightly_match = re.match(

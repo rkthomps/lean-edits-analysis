@@ -1,14 +1,17 @@
 import logging
+from dataclasses import dataclass
 from typing import Iterable
 from pathlib import Path
 
 from edit_data.types import (
+    GitChangeMetadata,
     WorkspaceChangeHistory,
 )
 from edit_data.zip_edits import load_workspace_history
 
 from lean_edits_analysis.common import DATA_LOC
 from lean_edits_analysis.scratchpad import Scratchpad
+from lean_edits_analysis.util import git_parts_from_metadata, count_session_edits
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +48,23 @@ def get_repo_commits(repo_owner: str, repo_name: str) -> list[str]:
     return commits
 
 
+def load_matching_commit_sessions(
+    repo_owner: str, repo_name: str, commit_sha: str
+) -> WorkspaceChangeHistory:
+    for workspace_data in DATA_LOC.iterdir():
+        if repo_owner not in workspace_data.name:
+            continue
+        if repo_name not in workspace_data.name:
+            continue
+        for commit_data in workspace_data.iterdir():
+            if commit_sha not in commit_data.name:
+                continue
+            return load_last_commit_history(commit_data)
+    raise ValueError(
+        f"No session found for repo {repo_owner}/{repo_name} at commit {commit_sha}"
+    )
+
+
 def load_matching_sessions(
     repo_owner: str, repo_name: str
 ) -> Iterable[WorkspaceChangeHistory]:
@@ -54,7 +74,62 @@ def load_matching_sessions(
         if repo_name not in workspace_data.name:
             continue
         for commit_data in workspace_data.iterdir():
-            yield load_last_commit_history(commit_data)
+            try:
+                yield load_last_commit_history(commit_data)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to load session for repo {repo_owner}/{repo_name} at commit {commit_data.name}. Error: {e}"
+                )
+
+
+@dataclass
+class SessionMetadata:
+    head: str
+    edits: int
+
+
+@dataclass
+class RepoMetadata:
+    repo_owner: str
+    repo_name: str
+    sessions: list[SessionMetadata]
+
+
+def find_repo_metadata() -> list[RepoMetadata]:
+    repos: dict[tuple[str, str], list[SessionMetadata]] = {}
+    for workspace_data in DATA_LOC.iterdir():
+        for commit_data in workspace_data.iterdir():
+            sessions: list[SessionMetadata] = []
+            try:
+                session = load_last_commit_history(commit_data)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to load session for workspace {workspace_data.name} at commit {commit_data.name}. Error: {e}"
+                )
+                continue
+            if not isinstance(session.metadata, GitChangeMetadata):
+                logger.warning(
+                    f"Skipping session for edits at workspace {session.metadata.workspace_name}. Local metadata."
+                )
+                continue
+            git_parts = git_parts_from_metadata(session.metadata)
+            if git_parts is None:
+                logger.warning(
+                    f"Skipping session for edits at workspace {session.metadata.workspace_name}. Unable to parse git parts from metadata."
+                )
+                continue
+            num_edits = count_session_edits(session)
+            sessions.append(
+                SessionMetadata(head=session.metadata.head, edits=num_edits)
+            )
+            repo_key = (git_parts.owner, git_parts.repo)
+            if repo_key not in repos:
+                repos[repo_key] = []
+            repos[repo_key].extend(sessions)
+    return [
+        RepoMetadata(repo_owner=owner, repo_name=repo, sessions=sessions)
+        for (owner, repo), sessions in repos.items()
+    ]
 
 
 def debug_session():
