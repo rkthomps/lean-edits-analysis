@@ -2,7 +2,7 @@ from pathlib import Path
 from pydantic import BaseModel
 from datetime import datetime
 
-from edit_data.types import WorkspaceChangeHistory, Edit, ContentChange
+from edit_data.types import WorkspaceChangeHistory, ContentChange
 from edit_data.edits import apply_change
 
 from lean_edits_analysis.scratchpad import Scratchpad
@@ -46,7 +46,7 @@ class FileDeclChangeEvents(BaseModel):
         decl_changes: dict[str, tuple[Decl, list[DeclChangeEvent]]] = {}
         scratchpad.restore()
         current_file_contents = (scratchpad.repo_path / file).read_text()
-        for edit_idx, prev_info, edit, info in cache.iter_edits_with_info(
+        for _, prev_info, edit, _ in cache.iter_edits_with_info(
             workspace_change_history, file, edit_start_idx=0
         ):
             for decl in prev_info.decls:

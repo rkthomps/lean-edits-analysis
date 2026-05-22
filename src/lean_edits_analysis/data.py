@@ -10,7 +10,6 @@ from edit_data.types import (
 from edit_data.zip_edits import load_workspace_history
 
 from lean_edits_analysis.common import DATA_LOC
-from lean_edits_analysis.scratchpad import Scratchpad
 from lean_edits_analysis.util import git_parts_from_metadata, count_session_edits
 
 logger = logging.getLogger(__name__)
@@ -138,84 +137,3 @@ def find_repo_metadata() -> list[RepoMetadata]:
         RepoMetadata(repo_owner=owner, repo_name=repo, sessions=sessions)
         for (owner, repo), sessions in repos.items()
     ]
-
-
-def debug_session():
-
-    logging.basicConfig(
-        level=logging.WARNING,
-        format="%(asctime)s %(name)s %(levelname)s %(message)s",
-    )
-    logging.getLogger("lean_edits_analysis").setLevel(logging.INFO)
-    logging.getLogger("__name__").setLevel(logging.INFO)
-
-    session_change_history = load_session(
-        repo_owner="rkthomps",
-        repo_name="lean-time-m",
-        commit_sha="880d1ca2ed73bb4427396fd635e301934142a97c",
-    )
-
-    scratchpad = Scratchpad(
-        repo_owner="rkthomps",
-        repo_name="lean-time-m",
-        commit_sha="880d1ca2ed73bb4427396fd635e301934142a97c",
-    )
-    scratchpad.setup()
-    changed_files = get_changed_files(session_change_history)
-    for file, _ in changed_files:
-        cache = EditInfoCache.get_cache(scratchpad, file)
-        if not cache.exists_and_has_correct_num_edits(
-            session_change_history, file, scratchpad
-        ):
-            cache.delete_cache()
-            logger.info(f"Creating cache for file {file}")
-            cache.create(scratchpad, session=session_change_history)
-
-    # for file, num_edits in changed_files:
-    #     logger.info(f"Getting decls for changed file {file}")
-
-    #     full_file_path = scratchpad.repo_path / file
-    #     file_uri = full_file_path.resolve().as_uri()
-    #     before = get_version_at_edit(file, session_change_history.get_dict(), 0)
-    #     scratchpad.write_version(before)
-    #     with LeanClient.start(
-    #         scratchpad.repo_path, instrument_server=True, timeout=30
-    #     ) as client:
-    #         client.open_file(file_uri, full_file_path.read_text())
-    #         decls_before = get_decls(client, scratchpad, file)
-    #         logger.info(f"Decls before: {len(decls_before)} decls")
-
-    #     after = get_version_at_edit(
-    #         file, session_change_history.get_dict(), num_edits - 1
-    #     )
-    #     scratchpad.write_version(after)
-    #     with LeanClient.start(
-    #         scratchpad.repo_path, instrument_server=True, timeout=30
-    #     ) as client:
-    #         client.open_file(file_uri, full_file_path.read_text())
-    #         decls_after = get_decls(client, scratchpad, file)
-    #         logger.info(f"Decls after: {len(decls_after)} decls")
-
-    #     added_decls = get_added_decls(decls_before, decls_after)
-    #     removed_decls = get_removed_decls(decls_before, decls_after)
-    #     modified_decls = get_modified_decls(decls_before, decls_after)
-
-    #     print(f"Added decls in {file}:")
-    #     for decl in added_decls:
-    #         print(f"  {show_decl(decl)}")
-    #     print(f"Removed decls in {file}:")
-    #     for decl in removed_decls:
-    #         print(f"  {show_decl(decl)}")
-    #     print(f"Modified decls in {file}:")
-    #     for decl in modified_decls:
-    #         print(f"  {show_decl(decl)}")
-
-    #     edits_per_decl = replay_edits_single_file(
-    #         scratchpad, session_change_history, file
-    #     )
-    #     for decl_name, edits in edits_per_decl.items():
-    #         print(f"- Decl {decl_name} has {len(edits)} edits.")
-
-
-if __name__ == "__main__":
-    debug_session()

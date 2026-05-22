@@ -8,9 +8,7 @@ from pathlib import Path
 
 from lean_edits_analysis.scratchpad import Scratchpad, ScratchpadError
 from lean_edits_analysis.data import (
-    RepoMetadata,
     load_matching_sessions,
-    get_repo_commits,
     find_repo_metadata,
 )
 from lean_edits_analysis.util import git_parts_from_metadata, count_session_edits
@@ -220,7 +218,7 @@ class EditInfoCache(BaseModel):
             self.prev_edit_info_loc.open("a") as prev_edit_info_file,
             self.edit_infos_loc.open("a") as edit_infos_file,
         ):
-            for edit_idx, prev_edit_info, edit, edit_info in iter_edits_with_info(
+            for edit_idx, prev_edit_info, _, edit_info in iter_edits_with_info(
                 scratchpad, session, self.file, edit_start_idx=existing_num_edits
             ):
                 if edit_idx % 25 == 0:
@@ -269,7 +267,7 @@ def _cache_session(
     scratchpad = Scratchpad(
         repo_owner=repo_owner, repo_name=repo_name, commit_sha=commit_sha
     )
-    with get_repo_lock(repo_owner, repo_name) as f:
+    with get_repo_lock(repo_owner, repo_name):
         scratchpad.setup()
         for file in session.files:
             _cache_session_file(scratchpad, session, file.path)
@@ -328,7 +326,7 @@ def cache_repo_iter(
 
 
 def _cache_repo(repo_owner: str, repo_name: str):
-    for session, success in cache_repo_iter(repo_owner, repo_name):
+    for _, success in cache_repo_iter(repo_owner, repo_name):
         logger.info(
             f"Finished caching session for {repo_owner}/{repo_name} with success={success}"
         )

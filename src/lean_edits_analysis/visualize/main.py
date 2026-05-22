@@ -1,12 +1,10 @@
 import logging
 import click
-from pydantic import BaseModel
 from pathlib import Path
-from dataclasses import dataclass
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from edit_data.types import WorkspaceChangeHistory, GitChangeMetadata
+from edit_data.types import GitChangeMetadata
 
 from lean_edits_analysis.data import (
     RepoMetadata,
@@ -15,7 +13,7 @@ from lean_edits_analysis.data import (
 )
 from lean_edits_analysis.util import git_url_parts_from_session
 from lean_edits_analysis.scratchpad import Scratchpad
-from lean_edits_analysis.edit_info import EditInfoCache, cache_repo_iter, get_repo_lock
+from lean_edits_analysis.edit_info import cache_repo_iter, get_repo_lock
 
 from lean_edits_analysis.visualize.build import write_session_data
 from lean_edits_analysis.visualize.file_heat_map import FileHeatmapInfo
@@ -82,7 +80,7 @@ def _cache_and_show_repo(repo_metadata: RepoMetadata):
             f"Finished caching session for {repo_metadata.repo_owner}/{repo_metadata.repo_name} with success={success}"
         )
         if success:
-            with get_repo_lock(repo_metadata.repo_owner, repo_metadata.repo_name) as f:
+            with get_repo_lock(repo_metadata.repo_owner, repo_metadata.repo_name):
                 assert isinstance(session.metadata, GitChangeMetadata)
                 scratchpad = Scratchpad(
                     repo_owner=repo_metadata.repo_owner,

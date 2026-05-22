@@ -1,7 +1,6 @@
 from pydantic import BaseModel
 from pathlib import Path
 from datetime import datetime
-from dataclasses import dataclass
 
 from edit_data.types import WorkspaceChangeHistory
 from edit_data.edits import get_version_at_edit, apply_change
