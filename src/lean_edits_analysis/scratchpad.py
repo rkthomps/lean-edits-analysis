@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class ScratchpadError(Exception):
-    message: str
+    pass
 
 
 _EXPECTED_MODIFIED_FILES: list[Path] = [
@@ -183,8 +183,22 @@ class Scratchpad:
         result = _run(["git", "rev-parse", "HEAD"], cwd=self.repo_path)
         return result.stdout.strip()
 
+    def _check_repo_is_public(self) -> bool:
+        result = _run(
+            ["git", "ls-remote", self.repo_url],
+            cwd=self.owner_path,
+            check=False,
+        )
+        if result.returncode != 0:
+            return False
+        return True
+
     def _clone_and_checkout(self):
         self.owner_path.mkdir(parents=True, exist_ok=True)
+        if not self._check_repo_is_public():
+            raise ScratchpadError(
+                f"Repository {self.repo_url} is not public or cannot be accessed."
+            )
         if not self.repo_path.exists():
             logger.info(f"Cloning {self.repo_url} into scratchpad")
             _run(["git", "clone", self.repo_url, self.repo_name], cwd=self.owner_path)

@@ -248,7 +248,7 @@ def get_repo_lock(repo_owner: str, repo_name: str) -> FileLock:
     return FileLock(repo_lock_path)
 
 
-def _need_to_cache(
+def need_to_cache(
     repo_owner: str, repo_name: str, commit_sha: str, session: WorkspaceChangeHistory
 ) -> bool:
     scratchpad = Scratchpad(
@@ -314,7 +314,7 @@ def cache_repo_iter(
             yield session, True
         except ScratchpadError as e:
             logger.error(
-                f"Failed to cache session for {git_parts.owner}/{git_parts.repo} at commit {session.metadata.head} due to scratchpad error: {e.message}"
+                f"Failed to cache session for {git_parts.owner}/{git_parts.repo} at commit {session.metadata.head} due to scratchpad error: {e}"
             )
             yield session, False
 

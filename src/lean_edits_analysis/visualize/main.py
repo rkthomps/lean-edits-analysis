@@ -4,16 +4,17 @@ from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from edit_data.types import GitChangeMetadata
+from edit_data.types import GitChangeMetadata, WorkspaceChangeHistory
 
 from lean_edits_analysis.data import (
     RepoMetadata,
+    load_matching_sessions,
     load_matching_commit_sessions,
     find_repo_metadata,
 )
 from lean_edits_analysis.util import git_url_parts_from_session
 from lean_edits_analysis.scratchpad import Scratchpad
-from lean_edits_analysis.edit_info import cache_repo_iter, get_repo_lock
+from lean_edits_analysis.edit_info import cache_repo_iter, get_repo_lock, need_to_cache
 
 from lean_edits_analysis.visualize.build import write_session_data
 from lean_edits_analysis.visualize.file_heat_map import FileHeatmapInfo
@@ -72,6 +73,33 @@ def commit(
     )
 
 
+def _show_session(session: WorkspaceChangeHistory):
+    git_parts = git_url_parts_from_session(session)
+    if git_parts is None:
+        return
+    assert isinstance(session.metadata, GitChangeMetadata)
+    with get_repo_lock(git_parts.owner, git_parts.repo):
+        scratchpad = Scratchpad(
+            repo_owner=git_parts.owner,
+            repo_name=git_parts.repo,
+            commit_sha=session.metadata.head,
+        )
+        scratchpad.setup()
+        file_heatmap = FileHeatmapInfo.build(session, scratchpad)
+        decl_heatmap = DeclHeatmapInfo.build(session, scratchpad)
+        write_session_data(
+            owner=git_parts.owner,
+            repo=git_parts.repo,
+            sha=session.metadata.head,
+            file_heatmap=file_heatmap,
+            decl_heatmap=decl_heatmap,
+        )
+
+
+def _session_num_edits(session: WorkspaceChangeHistory) -> int:
+    return sum(len(file.edits_history) for file in session.files)
+
+
 def _cache_and_show_repo(repo_metadata: RepoMetadata):
     for session, success in cache_repo_iter(
         repo_metadata.repo_owner, repo_metadata.repo_name
@@ -79,6 +107,8 @@ def _cache_and_show_repo(repo_metadata: RepoMetadata):
         logger.info(
             f"Finished caching session for {repo_metadata.repo_owner}/{repo_metadata.repo_name} with success={success}"
         )
+        if _session_num_edits(session) == 0:
+            continue
         if success:
             with get_repo_lock(repo_metadata.repo_owner, repo_metadata.repo_name):
                 assert isinstance(session.metadata, GitChangeMetadata)
@@ -139,6 +169,34 @@ def _setup_logging():
     # Set specific loggers
     logging.getLogger("lean_edits_analysis").setLevel(logging.INFO)
     logging.getLogger(__name__).setLevel(logging.INFO)
+
+
+@cli.command()
+def show():
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    )
+    logging.getLogger("lean_edits_analysis").setLevel(logging.INFO)
+    logging.getLogger(__name__).setLevel(logging.INFO)
+    repo_metadata = find_repo_metadata()
+
+    for repo in repo_metadata:
+        logger.info(
+            f"Repo {repo.repo_owner}/{repo.repo_name} has {len(repo.sessions)} sessions and {repo.total_edits} edits"
+        )
+        for session in load_matching_sessions(repo.repo_owner, repo.repo_name):
+            if not isinstance(session.metadata, GitChangeMetadata):
+                continue
+            if _session_num_edits(session) == 0:
+                continue
+            if not need_to_cache(
+                repo.repo_owner, repo.repo_name, session.metadata.head, session
+            ):
+                logger.info(
+                    f"showing session for {repo.repo_owner}/{repo.repo_name} at commit {session.metadata.head}"
+                )
+                _show_session(session)
 
 
 @cli.command()
