@@ -104,6 +104,7 @@ def _update_manifest(out_dir: Path) -> None:
             session_manifests.append(session_data.session)
         except Exception as e:
             logger.warning(f"Failed to parse session data from {f}: {e}")
+    session_manifests.sort(key=lambda s: s.id)
     manifest = Manifest(sessions=session_manifests)
     manifest_loc = out_dir / "manifest.json"
     with open(manifest_loc, "w") as fout:
@@ -127,6 +128,7 @@ def write_session_data(
         decl_heatmap=decl_heatmap,
     )
     out_loc = out_dir / session_data.session.file_name
+    out_loc.parent.mkdir(parents=True, exist_ok=True)
     with open(out_loc, "w") as fout:
         fout.write(session_data.model_dump_json(indent=2))
     logger.info(f"Wrote session data to {out_loc}")
