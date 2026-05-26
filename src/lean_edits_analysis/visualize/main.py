@@ -1,19 +1,21 @@
+from typing import Optional
 import logging
 import click
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from edit_data.types import GitChangeMetadata, WorkspaceChangeHistory
+from edit_data.types import GitChangeMetadata, WorkspaceChangeHistory, FileChangeHistory
 
 from lean_edits_analysis.data import (
     RepoMetadata,
     load_matching_sessions,
     load_matching_commit_sessions,
     find_repo_metadata,
+    repo_metadata_iter,
 )
 from lean_edits_analysis.util import git_url_parts_from_session
-from lean_edits_analysis.scratchpad import Scratchpad
+from lean_edits_analysis.scratchpad import Scratchpad, ScratchpadError
 from lean_edits_analysis.edit_info import cache_repo_iter, get_repo_lock, need_to_cache
 
 from lean_edits_analysis.visualize.build import write_session_data
@@ -26,6 +28,24 @@ logger = logging.getLogger(__name__)
 @click.group()
 def cli():
     pass
+
+
+def _session_num_edits(session: WorkspaceChangeHistory) -> int:
+    return sum(len(file.edits_history) for file in session.files)
+
+
+def _file_last_modified(file: FileChangeHistory) -> Optional[datetime]:
+    if len(file.edits_history) == 0:
+        return None
+    return max(edit.time for edit in file.edits_history)
+
+
+def _session_last_modified(session: WorkspaceChangeHistory) -> datetime:
+    last_mod_times = [_file_last_modified(file) for file in session.files]
+    last_mod_times = [t for t in last_mod_times if t is not None]
+    if len(last_mod_times) == 0:
+        raise ValueError("Session has no edits, cannot determine last modified time.")
+    return max(last_mod_times)
 
 
 @click.command()
@@ -70,6 +90,8 @@ def commit(
         sha=commit_sha,
         file_heatmap=file_heatmap,
         decl_heatmap=decl_heatmap,
+        num_edits=_session_num_edits(session),
+        last_modified=_session_last_modified(session),
     )
 
 
@@ -84,20 +106,21 @@ def _show_session(session: WorkspaceChangeHistory):
             repo_name=git_parts.repo,
             commit_sha=session.metadata.head,
         )
-        scratchpad.setup()
-        file_heatmap = FileHeatmapInfo.build(session, scratchpad)
-        decl_heatmap = DeclHeatmapInfo.build(session, scratchpad)
-        write_session_data(
-            owner=git_parts.owner,
-            repo=git_parts.repo,
-            sha=session.metadata.head,
-            file_heatmap=file_heatmap,
-            decl_heatmap=decl_heatmap,
-        )
-
-
-def _session_num_edits(session: WorkspaceChangeHistory) -> int:
-    return sum(len(file.edits_history) for file in session.files)
+        try:
+            scratchpad.setup(build=False)
+            file_heatmap = FileHeatmapInfo.build(session, scratchpad)
+            decl_heatmap = DeclHeatmapInfo.build(session, scratchpad)
+            write_session_data(
+                owner=git_parts.owner,
+                repo=git_parts.repo,
+                sha=session.metadata.head,
+                file_heatmap=file_heatmap,
+                decl_heatmap=decl_heatmap,
+                last_modified=_session_last_modified(session),
+                num_edits=_session_num_edits(session),
+            )
+        except ScratchpadError as e:
+            return
 
 
 def _cache_and_show_repo(repo_metadata: RepoMetadata):
@@ -134,6 +157,8 @@ def _cache_and_show_repo(repo_metadata: RepoMetadata):
                     sha=session.metadata.head,
                     file_heatmap=file_heatmap,
                     decl_heatmap=decl_heatmap,
+                    last_modified=_session_last_modified(session),
+                    num_edits=_session_num_edits(session),
                 )
                 logger.info(
                     f"Finished processing session for {repo_metadata.repo_owner}/{repo_metadata.repo_name} at commit {session.metadata.head}"
@@ -179,24 +204,22 @@ def show():
     )
     logging.getLogger("lean_edits_analysis").setLevel(logging.INFO)
     logging.getLogger(__name__).setLevel(logging.INFO)
-    repo_metadata = find_repo_metadata()
 
-    for repo in repo_metadata:
+    for repo, session in repo_metadata_iter():
         logger.info(
             f"Repo {repo.repo_owner}/{repo.repo_name} has {len(repo.sessions)} sessions and {repo.total_edits} edits"
         )
-        for session in load_matching_sessions(repo.repo_owner, repo.repo_name):
-            if not isinstance(session.metadata, GitChangeMetadata):
-                continue
-            if _session_num_edits(session) == 0:
-                continue
-            if not need_to_cache(
-                repo.repo_owner, repo.repo_name, session.metadata.head, session
-            ):
-                logger.info(
-                    f"showing session for {repo.repo_owner}/{repo.repo_name} at commit {session.metadata.head}"
-                )
-                _show_session(session)
+        if not isinstance(session.metadata, GitChangeMetadata):
+            continue
+        if _session_num_edits(session) == 0:
+            continue
+        if not need_to_cache(
+            repo.repo_owner, repo.repo_name, session.metadata.head, session
+        ):
+            logger.info(
+                f"showing session for {repo.repo_owner}/{repo.repo_name} at commit {session.metadata.head}"
+            )
+            _show_session(session)
 
 
 @cli.command()

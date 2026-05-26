@@ -199,23 +199,31 @@ class Scratchpad:
             raise ScratchpadError(
                 f"Repository {self.repo_url} is not public or cannot be accessed."
             )
-        if not self.repo_path.exists():
-            logger.info(f"Cloning {self.repo_url} into scratchpad")
-            _run(["git", "clone", self.repo_url, self.repo_name], cwd=self.owner_path)
+        try:
+            if not self.repo_path.exists():
+                logger.info(f"Cloning {self.repo_url} into scratchpad")
+                _run(
+                    ["git", "clone", self.repo_url, self.repo_name], cwd=self.owner_path
+                )
 
-        assert self.repo_path.exists(), f"Failed to clone repo to {self.repo_path}"
-        sha = self._get_current_sha()
-        if sha != self.commit_sha:
-            logger.info(f"Fetching commit {self.commit_sha} for {self.repo_url}")
-            _run(["git", "fetch", "origin", self.commit_sha], cwd=self.repo_path)
             assert self.repo_path.exists(), f"Failed to clone repo to {self.repo_path}"
-            _run(["git", "restore", "."], cwd=self.repo_path)
-            _run(["git", "checkout", self.commit_sha], cwd=self.repo_path)
-        sha = self._get_current_sha()
-        assert (
-            sha == self.commit_sha
-        ), f"Failed to checkout {self.commit_sha} for {self.repo_url}, currently at {sha}"
-        logger.info(f"Checked out {self.repo_url} at commit {self.commit_sha}")
+            sha = self._get_current_sha()
+            if sha != self.commit_sha:
+                logger.info(f"Fetching commit {self.commit_sha} for {self.repo_url}")
+                _run(["git", "fetch", "origin", self.commit_sha], cwd=self.repo_path)
+                assert (
+                    self.repo_path.exists()
+                ), f"Failed to clone repo to {self.repo_path}"
+                _run(["git", "restore", "."], cwd=self.repo_path)
+                _run(["git", "checkout", self.commit_sha], cwd=self.repo_path)
+            sha = self._get_current_sha()
+            assert (
+                sha == self.commit_sha
+            ), f"Failed to checkout {self.commit_sha} for {self.repo_url}, currently at {sha}"
+            logger.info(f"Checked out {self.repo_url} at commit {self.commit_sha}")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Git command failed: {e}")
+            raise ScratchpadError(f"Git command failed: {e}")
 
     def _add_instrumentation(self):
         lean_toolchain_path = self.repo_path / "lean-toolchain"
@@ -265,8 +273,9 @@ class Scratchpad:
         else:
             logger.info(f"Built {self.repo_url} at commit {self.commit_sha}.")
 
-    def setup(self):
+    def setup(self, build: bool = True):
         self._clone_and_checkout()  # Idempotent
-        self._add_instrumentation()
-        self._lake_update()
-        self._lake_build()
+        if build:
+            self._add_instrumentation()
+            self._lake_update()
+            self._lake_build()

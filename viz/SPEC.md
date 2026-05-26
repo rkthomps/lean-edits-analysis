@@ -23,6 +23,15 @@ or more visualizations.
 - **File page** *(planned)* — drill into a single file: how its declarations changed
   over time, with a slider to scrub through the edit history.
 
+### Sidebar navigation
+
+The sidebar lists sessions as a three-level hierarchy: repo owner → repo → commit.
+Each level is annotated with the total edit count and (for repos and commits) the last
+modified date. Owners are sorted by total edits descending; repos within an owner and
+commits within a repo are sorted by last modified date descending (most recent first).
+Selecting a commit loads that session and scrolls the main panel back to the top, so
+the results are always visible without having to scroll up.
+
 ## Writing a visualization
 
 Each visualization is one section below, using the same headings every time:

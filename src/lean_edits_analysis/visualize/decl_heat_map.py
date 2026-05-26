@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from edit_data.types import WorkspaceChangeHistory, ContentChange
-from edit_data.edits import apply_change
+from edit_data.edits import apply_change, get_version_at_time
 
 from lean_edits_analysis.scratchpad import Scratchpad
 from lean_edits_analysis.edit_info import EditInfoCache

@@ -20,15 +20,17 @@ body {
 
 .shell {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .shell-sidebar {
-  width: 240px;
-  flex: 0 0 240px;
+  width: 260px;
+  flex: 0 0 260px;
   background: var(--shell-sidebar-bg);
   border-right: 1px solid var(--shell-border);
   padding: 16px;
+  overflow-y: auto;
 }
 
 .shell-title {
@@ -39,32 +41,145 @@ body {
   margin: 0 0 12px;
 }
 
-.shell-sessions {
+/* Owner level */
+
+.shell-owners {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.shell-session {
-  padding: 8px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  word-break: break-word;
+.shell-owner {
+  margin-bottom: 12px;
 }
 
-.shell-session:hover {
+.shell-toggle-arrow {
+  display: inline-block;
+  font-size: 9px;
+  margin-right: 4px;
+  color: var(--shell-muted);
+  transition: transform 0.15s ease;
+}
+
+.shell-owner-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 2px 0 4px;
+  border-bottom: 1px solid var(--shell-border);
+  margin-bottom: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.shell-owner.is-open > .shell-owner-header .shell-toggle-arrow {
+  transform: rotate(90deg);
+}
+
+.shell-owner-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.shell-owner-meta {
+  font-size: 11px;
+  color: var(--shell-muted);
+}
+
+/* Repo level */
+
+.shell-repos {
+  display: none;
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 8px;
+}
+
+.shell-owner.is-open > .shell-repos {
+  display: block;
+}
+
+.shell-repo {
+  margin-bottom: 6px;
+}
+
+.shell-repo-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 2px 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.shell-repo.is-open > .shell-repo-header .shell-toggle-arrow {
+  transform: rotate(90deg);
+}
+
+.shell-repo-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--shell-fg);
+}
+
+.shell-repo-meta {
+  font-size: 11px;
+  color: var(--shell-muted);
+}
+
+/* Commit level */
+
+.shell-commits {
+  display: none;
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0 0 0 8px;
+}
+
+.shell-repo.is-open > .shell-commits {
+  display: block;
+}
+
+.shell-commit {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 2px;
+}
+
+.shell-commit:hover {
   background: rgba(0, 0, 0, 0.05);
 }
 
-.shell-session.is-active {
+.shell-commit.is-active {
   background: var(--shell-accent);
   color: #fff;
 }
+
+.shell-commit-sha {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+.shell-commit-meta {
+  font-size: 11px;
+  color: var(--shell-muted);
+}
+
+.shell-commit.is-active .shell-commit-meta {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* Main panel */
 
 .shell-main {
   flex: 1 1 auto;
   min-width: 0;
   padding: 24px 28px;
+  overflow-y: auto;
   overflow-x: auto;
 }
 

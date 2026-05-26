@@ -123,10 +123,17 @@ The Python side writes into `viz/data/`.
 {
   "sessions": [
     { "id": "rkthomps__lean-time-m__880d1ca", "title": "rkthomps/lean-time-m @ 880d1ca",
-      "owner": "rkthomps", "repo": "lean-time-m", "sha": "880d1ca...", "file": "rkthomps__lean-time-m__880d1ca.json" }
+      "owner": "rkthomps", "repo": "lean-time-m", "sha": "880d1ca...",
+      "file": "rkthomps__lean-time-m__880d1ca.json",
+      "last_modified": "2026-02-23T10:08:56.886000", "num_edits": 42 }
   ]
 }
 ```
+
+`last_modified` is an ISO-8601 datetime string (UTC). `num_edits` is the total number
+of edits across all files in the session. The shell uses these to build the hierarchical
+sidebar (owner → repo → commit), sorting owners by total edits descending and repos/commits
+by last_modified descending.
 
 `<session-id>.json` — one session, holding one or more views. Each view is
 `{ "kind": ..., "data": <kind-specific object> }`; the shell renders it by looking up

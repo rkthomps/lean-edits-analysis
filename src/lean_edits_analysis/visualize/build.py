@@ -8,6 +8,7 @@ rendering — see ``viz/CONVENTIONS.md`` for the data contract.
 
 import logging
 from typing import Literal, Union, Annotated
+from datetime import datetime
 
 import json
 from pydantic import BaseModel, Field
@@ -25,6 +26,8 @@ class SessionManifest(BaseModel):
     owner: str
     repo: str
     sha: str
+    last_modified: datetime
+    num_edits: int
 
     @property
     def id(self) -> str:
@@ -46,6 +49,8 @@ class SessionManifest(BaseModel):
             "repo": self.repo,
             "sha": self.sha,
             "file": self.file_name,
+            "last_modified": self.last_modified.isoformat(),
+            "num_edits": self.num_edits,
         }
 
 
@@ -81,6 +86,8 @@ def _to_session_data(
     owner: str,
     repo: str,
     sha: str,
+    last_modified: datetime,
+    num_edits: int,
     file_heatmap: FileHeatmapInfo | None = None,
     decl_heatmap: DeclHeatmapInfo | None = None,
 ) -> SessionData:
@@ -90,7 +97,13 @@ def _to_session_data(
     if decl_heatmap is not None:
         views.append(DeclHeatmapView(data=decl_heatmap))
 
-    session_manifest = SessionManifest(owner=owner, repo=repo, sha=sha)
+    session_manifest = SessionManifest(
+        owner=owner,
+        repo=repo,
+        sha=sha,
+        last_modified=last_modified,
+        num_edits=num_edits,
+    )
     return SessionData(session=session_manifest, views=views)
 
 
@@ -116,9 +129,11 @@ def write_session_data(
     owner: str,
     repo: str,
     sha: str,
+    last_modified: datetime,
+    num_edits: int,
+    out_dir: Path = VIZ_DATA_LOC,
     file_heatmap: FileHeatmapInfo | None = None,
     decl_heatmap: DeclHeatmapInfo | None = None,
-    out_dir: Path = VIZ_DATA_LOC,
 ):
     session_data = _to_session_data(
         owner=owner,
@@ -126,6 +141,8 @@ def write_session_data(
         sha=sha,
         file_heatmap=file_heatmap,
         decl_heatmap=decl_heatmap,
+        last_modified=last_modified,
+        num_edits=num_edits,
     )
     out_loc = out_dir / session_data.session.file_name
     out_loc.parent.mkdir(parents=True, exist_ok=True)
