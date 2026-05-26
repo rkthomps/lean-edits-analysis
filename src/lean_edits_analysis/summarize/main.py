@@ -1,5 +1,6 @@
 from typing import Optional
 import click
+import difflib
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass
@@ -18,9 +19,18 @@ def cli():
     pass
 
 
+@cli.command()
+@click.option("--owner", required=True, help="GitHub repository owner")
+@click.option("--repo", required=True, help="GitHub repository name")
+@click.option("--sha", required=True, help="GitHub commit SHA")
+@click.option("--file", "file_str", required=True, help="File path within the repo")
+@click.option("--start", "start_edit_idx", required=True, type=int, help="Start edit index (inclusive)")
+@click.option("--end", "end_edit_idx", required=True, type=int, help="End edit index (inclusive)")
+@click.option("--diff", "diff_mode", type=click.Choice(["raw", "difflib"]), default="difflib")
 def edit_diff(
-    owner: str, repo: str, sha: str, file: Path, start_edit_idx: int, end_edit_idx: int
+    owner: str, repo: str, sha: str, file_str: str, start_edit_idx: int, end_edit_idx: int, diff_mode: str
 ):
+    file = Path(file_str)
     session = load_matching_commit_sessions(owner, repo, sha)
     assert isinstance(session.metadata, GitChangeMetadata)
     git_parts = git_parts_from_metadata(session.metadata)
@@ -33,6 +43,24 @@ def edit_diff(
         scratchpad_commit_sha=session.metadata.head,
         file=file,
     )
+    diff = get_diff(session, file, cache, start_edit_idx, end_edit_idx)
+    if diff_mode == "raw":
+        click.echo(f"=== BEFORE ===\n{diff.before}")
+        click.echo(f"=== AFTER ===\n{diff.after}")
+    else:
+        udiff = difflib.unified_diff(
+            diff.before.splitlines(keepends=True),
+            diff.after.splitlines(keepends=True),
+            fromfile="before",
+            tofile="after",
+        )
+        click.echo("".join(udiff), nl=False)
+    click.echo(f"=== DIAGNOSTICS BEFORE ({len(diff.diagnostics_before)}) ===")
+    for d in diff.diagnostics_before:
+        click.echo(f"  [{d.severity}] {d.message[:120]}")
+    click.echo(f"=== DIAGNOSTICS AFTER ({len(diff.diagnostics_after)}) ===")
+    for d in diff.diagnostics_after:
+        click.echo(f"  [{d.severity}] {d.message[:120]}")
 
 
 @dataclass

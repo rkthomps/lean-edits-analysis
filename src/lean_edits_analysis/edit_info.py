@@ -142,10 +142,6 @@ class EditInfoCache(BaseModel):
         return self.cache_loc / "edit_infos.jsonl"
 
     def edit_info_at_idx(self, idx: int) -> tuple[EditInfo, EditInfo]:
-        if not self.exists_and_has_correct_num_edits(None, self.file):
-            raise ValueError(
-                f"Cache does not exist for file {self.file} at {self.cache_loc}"
-            )
         if idx < 0:
             raise ValueError(f"Edit index {idx} must be non-negative")
         if idx == 0:
