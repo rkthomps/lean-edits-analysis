@@ -102,6 +102,29 @@ class RepoMetadata:
         return len(self.sessions)
 
 
+def repo_metadata_iter() -> Iterable[tuple[RepoMetadata, WorkspaceChangeHistory]]:
+    for workspace_data in DATA_LOC.iterdir():
+        if not workspace_data.is_dir():
+            continue
+        for commit_data in workspace_data.iterdir():
+            try:
+                session = load_last_commit_history(commit_data)
+            except Exception:
+                continue
+            if not isinstance(session.metadata, GitChangeMetadata):
+                continue
+            git_parts = git_parts_from_metadata(session.metadata)
+            if git_parts is None:
+                continue
+            num_edits = count_session_edits(session)
+            repo_metadata = RepoMetadata(
+                repo_owner=git_parts.owner,
+                repo_name=git_parts.repo,
+                sessions=[SessionMetadata(head=session.metadata.head, edits=num_edits)],
+            )
+            yield repo_metadata, session
+
+
 def find_repo_metadata() -> list[RepoMetadata]:
     repos: dict[tuple[str, str], list[SessionMetadata]] = {}
     for workspace_data in DATA_LOC.iterdir():

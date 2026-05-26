@@ -5,11 +5,13 @@ from filelock import FileLock
 from typing import Iterable, Optional
 from pydantic import BaseModel
 from pathlib import Path
+from dataclasses import dataclass
 
 from lean_edits_analysis.scratchpad import Scratchpad, ScratchpadError
 from lean_edits_analysis.data import (
     load_matching_sessions,
     find_repo_metadata,
+    repo_metadata_iter,
 )
 from lean_edits_analysis.util import git_parts_from_metadata, count_session_edits
 
@@ -197,7 +199,8 @@ class EditInfoCache(BaseModel):
         )
         return cache
 
-    def _get_number_of_edits_in_cache(self) -> int:
+    @property
+    def num_edits(self) -> int:
         if not self.cache_loc.exists():
             return 0
         if not self.prev_edit_info_loc.exists():
@@ -209,7 +212,7 @@ class EditInfoCache(BaseModel):
         return num_cached_edits
 
     def create(self, scratchpad: Scratchpad, session: WorkspaceChangeHistory) -> None:
-        existing_num_edits = self._get_number_of_edits_in_cache()
+        existing_num_edits = self.num_edits
         self.cache_loc.mkdir(parents=True, exist_ok=True)
         logger.info(
             f"Found {existing_num_edits} cached edits for file {self.file}. Creating cache starting from edit {existing_num_edits}"
@@ -294,7 +297,7 @@ def cache_repo_iter(
             f"Processing session for {git_parts.owner}/{git_parts.repo} at commit {session.metadata.head} with {num_files} files and {num_edits} edits"
         )
         try:
-            if not _need_to_cache(
+            if not need_to_cache(
                 repo_owner=git_parts.owner,
                 repo_name=git_parts.repo,
                 commit_sha=session.metadata.head,
@@ -330,6 +333,108 @@ def _cache_repo(repo_owner: str, repo_name: str):
         logger.info(
             f"Finished caching session for {repo_owner}/{repo_name} with success={success}"
         )
+
+
+@dataclass
+class _CompleteFile:
+    path: Path
+    num_edits: int
+
+
+@dataclass
+class _IncompleteFile:
+    path: Path
+    num_edits: int
+    num_cached_edits: int
+
+
+@dataclass
+class _SessionProgress:
+    owner: str
+    repo: str
+    commit_sha: str
+    incomplete_files: list[_IncompleteFile]
+    complete_files: list[_CompleteFile]
+
+    @property
+    def done(self) -> bool:
+        return len(self.incomplete_files) == 0
+
+    @property
+    def completed_edits(self) -> int:
+        return sum(file.num_edits for file in self.complete_files)
+
+    @property
+    def num_cached_edits(self) -> int:
+        return (
+            sum(file.num_cached_edits for file in self.incomplete_files)
+            + self.completed_edits
+        )
+
+    @property
+    def num_edits(self) -> int:
+        return self.completed_edits + sum(
+            file.num_edits for file in self.incomplete_files
+        )
+
+
+@cli.command()
+def progress():
+    for repo_metadata, session in repo_metadata_iter():
+        assert isinstance(session.metadata, GitChangeMetadata)
+        incomplete_files: list[_IncompleteFile] = []
+        complete_files: list[_CompleteFile] = []
+        for file in session.files:
+            cache = EditInfoCache(
+                scratchpad_repo_owner=repo_metadata.repo_owner,
+                scratchpad_repo_name=repo_metadata.repo_name,
+                scratchpad_commit_sha=repo_metadata.sessions[0].head,
+                file=file.path,
+            )
+            num_cached_edits = cache.num_edits
+            num_session_edits = len(session.get_dict()[file.path].edits_history)
+            if num_cached_edits == num_session_edits:
+                complete_files.append(
+                    _CompleteFile(path=file.path, num_edits=num_session_edits)
+                )
+            else:
+                assert num_cached_edits < num_session_edits
+                incomplete_files.append(
+                    _IncompleteFile(
+                        path=file.path,
+                        num_edits=num_session_edits,
+                        num_cached_edits=num_cached_edits,
+                    )
+                )
+        assert len(incomplete_files) + len(complete_files) == len(session.files)
+        progress = _SessionProgress(
+            owner=repo_metadata.repo_owner,
+            repo=repo_metadata.repo_name,
+            commit_sha=repo_metadata.sessions[0].head,
+            incomplete_files=incomplete_files,
+            complete_files=complete_files,
+        )
+        if progress.done:
+            # with checkmark emoji
+            print(
+                f"{progress.owner}/{progress.repo} at commit {progress.commit_sha} ✅ ({progress.completed_edits} edits)"
+            )
+        elif progress.num_cached_edits == 0:
+            print(
+                f"{progress.owner}/{progress.repo} at commit {progress.commit_sha} ❌. Processing not started for {len(incomplete_files)} files with {progress.num_edits} cached edits."
+            )
+        else:
+            print(
+                f"Progress for {progress.owner}/{progress.repo} at commit {progress.commit_sha}:"
+            )
+            for file in progress.complete_files:
+                print(
+                    f"  {file.path}: {file.num_edits} edits ✅ (cached {file.num_edits} edits)"
+                )
+            for file in progress.incomplete_files:
+                print(
+                    f"  {file.path}: {file.num_edits} edits ⏳ (cached ({file.num_cached_edits} / {file.num_edits}) edits)"
+                )
 
 
 @cli.command()
