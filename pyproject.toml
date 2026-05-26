@@ -8,10 +8,12 @@ requires-python = ">=3.14"
 dependencies = [
     "click>=8.4.0",
     "edit-data",
+    "fastapi>=0.136.3",
     "filelock>=3.29.0",
     "lean-client",
     "pydantic>=2.13.4",
     "tomlkit>=0.14.0",
+    "uvicorn[standard]>=0.34.0",
 ]
 
 [project.scripts]
@@ -19,6 +21,8 @@ lean-edits-analysis = "lean_edits_analysis:main"
 show-session = "lean_edits_analysis.analyze_session:debug_session"
 cache-edits = "lean_edits_analysis.edit_info:cli"
 viz-edits = "lean_edits_analysis.visualize.main:cli"
+summarize-edits = "lean_edits_analysis.summarize.main:cli"
+serve-viz = "lean_edits_analysis.visualize.server:run"
 
 [build-system]
 requires = ["uv_build>=0.8.22,<0.9.0"]

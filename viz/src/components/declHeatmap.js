@@ -46,7 +46,7 @@ function declLabel(decl) {
 
 // data is exactly a DeclHeatmapInfo:
 // { file_data: [ { file, decl_changes: [ { decl, change_events: [...] } ] } ] }
-export function render(container, data, _options = {}) {
+export function render(container, data, options = {}) {
   const fileData = (data && data.file_data) || [];
 
   const fileName = (f) => (typeof f.file === "string" ? f.file : String(f.file));
@@ -305,14 +305,33 @@ export function render(container, data, _options = {}) {
 
     clear(svgHost).appendChild(root);
 
-    // --- collapse/expand on file-header click ---
+    // --- collapse/expand on file-header click; open diff page on cell click ---
     root.addEventListener("click", (ev) => {
       const header = ev.target.closest && ev.target.closest(".dh-file-header");
-      if (!header) return;
-      const file = header.getAttribute("data-file");
-      if (collapsed.has(file)) collapsed.delete(file);
-      else collapsed.add(file);
-      draw();
+      if (header) {
+        const file = header.getAttribute("data-file");
+        if (collapsed.has(file)) collapsed.delete(file);
+        else collapsed.add(file);
+        draw();
+        return;
+      }
+      const t = ev.target;
+      if (!(t instanceof Element) || !t.classList.contains("dh-cell")) return;
+      if (typeof options.onEditClick !== "function") return;
+      const g = visibleGroups[Number(t.getAttribute("data-g"))];
+      const d = g.decls[Number(t.getAttribute("data-d"))];
+      const b = Number(t.getAttribute("data-b"));
+      const span = hi - lo;
+      const eventsInBin = d.change_events.filter((e) => {
+        const ts = parseTime(e.time);
+        if (ts < lo || ts > hi) return false;
+        let idx = Math.floor(((ts - lo) / span) * nBins);
+        if (idx >= nBins) idx = nBins - 1;
+        if (idx < 0) idx = 0;
+        return idx === b;
+      });
+      if (eventsInBin.length === 0) return;
+      options.onEditClick(g.file, eventsInBin[0].edit_index);
     });
 
     // --- hover tooltip over cells ---

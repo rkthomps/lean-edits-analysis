@@ -13,7 +13,11 @@ from lean_edits_analysis.data import (
     find_repo_metadata,
     repo_metadata_iter,
 )
-from lean_edits_analysis.util import git_parts_from_metadata, count_session_edits
+from lean_edits_analysis.util import (
+    GitUrlParts,
+    git_parts_from_metadata,
+    count_session_edits,
+)
 
 from edit_data.types import Edit, WorkspaceChangeHistory, GitChangeMetadata
 from edit_data.edits import get_version_at_edit
@@ -137,6 +141,36 @@ class EditInfoCache(BaseModel):
     def edit_infos_loc(self) -> Path:
         return self.cache_loc / "edit_infos.jsonl"
 
+    def edit_info_at_idx(self, idx: int) -> tuple[EditInfo, EditInfo]:
+        if not self.exists_and_has_correct_num_edits(None, self.file):
+            raise ValueError(
+                f"Cache does not exist for file {self.file} at {self.cache_loc}"
+            )
+        if idx < 0:
+            raise ValueError(f"Edit index {idx} must be non-negative")
+        if idx == 0:
+            prev_edit_info = EditInfo.model_validate_json(
+                self.prev_edit_info_loc.read_text()
+            )
+        else:
+            prev_edit_info = None
+
+        with self.edit_infos_loc.open() as edit_infos_file:
+            for i, line in enumerate(edit_infos_file):
+                if i == idx - 1:
+                    prev_edit_info = EditInfo.model_validate_json(line)
+                elif i == idx:
+                    assert (
+                        prev_edit_info is not None
+                    ), f"Previous edit info not found for edit index {idx}"
+                    edit_info = EditInfo.model_validate_json(line)
+                    return prev_edit_info, edit_info
+                elif i < idx:
+                    continue
+                else:
+                    assert False
+        raise ValueError(f"Edit index {idx} out of range for cache at {self.cache_loc}")
+
     def iter_edits_with_info(
         self, session: WorkspaceChangeHistory, file: Path, edit_start_idx: int = 0
     ) -> Iterable[tuple[int, EditInfo, Edit, EditInfo]]:
@@ -163,17 +197,15 @@ class EditInfoCache(BaseModel):
                     prev_edit_info = edit_info
 
     def exists_and_has_correct_num_edits(
-        self, session: WorkspaceChangeHistory, file: Path, scratchpad: Scratchpad
+        self, session: WorkspaceChangeHistory, file: Path
     ) -> bool:
+        if not isinstance(session.metadata, GitChangeMetadata):
+            raise ValueError(
+                f"Session metadata is not GitChangeMetadata. Found {type(session.metadata)}"
+            )
         if not self.cache_loc.exists():
             return False
         if not self.prev_edit_info_loc.exists() or not self.edit_infos_loc.exists():
-            return False
-        if self.scratchpad_repo_owner != scratchpad.repo_owner:
-            return False
-        if self.scratchpad_repo_name != scratchpad.repo_name:
-            return False
-        if self.scratchpad_commit_sha != scratchpad.commit_sha:
             return False
         with self.edit_infos_loc.open() as f:
             num_cached_edits = sum(1 for _ in f)
@@ -254,12 +286,14 @@ def get_repo_lock(repo_owner: str, repo_name: str) -> FileLock:
 def need_to_cache(
     repo_owner: str, repo_name: str, commit_sha: str, session: WorkspaceChangeHistory
 ) -> bool:
-    scratchpad = Scratchpad(
-        repo_owner=repo_owner, repo_name=repo_name, commit_sha=commit_sha
-    )
     for file in session.files:
-        cache = EditInfoCache.get_cache(scratchpad, file.path)
-        if not cache.exists_and_has_correct_num_edits(session, file.path, scratchpad):
+        cache = EditInfoCache(
+            scratchpad_repo_owner=repo_owner,
+            scratchpad_repo_name=repo_name,
+            scratchpad_commit_sha=commit_sha,
+            file=file.path,
+        )
+        if not cache.exists_and_has_correct_num_edits(session, file.path):
             return True
     return False
 

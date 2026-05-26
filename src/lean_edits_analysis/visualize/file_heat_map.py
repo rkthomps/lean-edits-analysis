@@ -3,15 +3,14 @@ from pathlib import Path
 from datetime import datetime
 
 from edit_data.types import WorkspaceChangeHistory
-from edit_data.edits import get_version_at_edit, apply_change
-
-from lean_edits_analysis.scratchpad import Scratchpad
+from edit_data.edits import apply_change, get_version_at_time
 
 
 class FileChangeEvent(BaseModel):
     characters_added: int
     characters_removed: int
     time: datetime
+    edit_index: int
 
 
 class FileChangeEvents(BaseModel):
@@ -23,12 +22,12 @@ class FileChangeEvents(BaseModel):
         cls,
         file: Path,
         workspace_change_history: WorkspaceChangeHistory,
-        scratchpad: Scratchpad,
     ) -> "FileChangeEvents":
         file_change_history = workspace_change_history.get_dict()[file]
         change_events: list[FileChangeEvent] = []
-        scratchpad.restore()
-        current_file_contents = (scratchpad.repo_path / file).read_text()
+        current_file_contents = get_version_at_time(
+            file, workspace_change_history.get_dict(), datetime.min
+        )
         for i, edit in enumerate(file_change_history.edits_history):
             edit_characters_added = 0
             edit_characters_removed = 0
@@ -45,11 +44,12 @@ class FileChangeEvents(BaseModel):
                     characters_added=edit_characters_added,
                     characters_removed=edit_characters_removed,
                     time=edit.time,
+                    edit_index=i,
                 )
             )
-            current_file_contents = get_version_at_edit(
-                file, workspace_change_history.get_dict(), i
-            )[file]
+            current_file_contents = get_version_at_time(
+                file, workspace_change_history.get_dict(), edit.time
+            )
         return cls(file=file, change_events=change_events)
 
 
@@ -58,7 +58,7 @@ class FileHeatmapInfo(BaseModel):
 
     @classmethod
     def build(
-        cls, workspace_change_history: WorkspaceChangeHistory, scratchpad: Scratchpad
+        cls, workspace_change_history: WorkspaceChangeHistory
     ) -> "FileHeatmapInfo":
         file_data: list[FileChangeEvents] = []
         for file_info in workspace_change_history.files:
@@ -66,7 +66,6 @@ class FileHeatmapInfo(BaseModel):
             change_events = FileChangeEvents.build(
                 file=file,
                 workspace_change_history=workspace_change_history,
-                scratchpad=scratchpad,
             )
             file_data.append(change_events)
         return cls(file_data=file_data)

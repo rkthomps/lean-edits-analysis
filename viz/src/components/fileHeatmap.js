@@ -10,6 +10,7 @@ import {
   binAll,
   intensity,
   orderByFirstEdit,
+  parseTime,
   formatTime,
   formatRange,
   humanDuration,
@@ -31,7 +32,7 @@ function cssVar(root, name, fallback) {
 }
 
 // data is exactly a FileHeatmapInfo: { file_data: [ { file, change_events: [...] } ] }
-export function render(container, data, _options = {}) {
+export function render(container, data, options = {}) {
   const fileData = orderByFirstEdit((data && data.file_data) || []);
   const [minMs, maxMs] = timeExtent(fileData);
 
@@ -100,6 +101,29 @@ export function render(container, data, _options = {}) {
 
   const tip = el("div", { class: "fh-tooltip", "aria-hidden": "true" });
   wrap.appendChild(tip);
+
+  // --- cell click → open diff page ---
+  svgHost.addEventListener("click", (ev) => {
+    const target = ev.target;
+    if (!(target instanceof Element) || !target.classList.contains("fh-cell")) return;
+    if (typeof options.onEditClick !== "function") return;
+    const fi = Number(target.getAttribute("data-f"));
+    const b = Number(target.getAttribute("data-b"));
+    const nBins = Number(slider.value);
+    const lo = winStart;
+    const hi = Math.max(winEnd, winStart + 1);
+    const span = hi - lo;
+    const eventsInBin = fileData[fi].change_events.filter((e) => {
+      const t = parseTime(e.time);
+      if (t < lo || t > hi) return false;
+      let idx = Math.floor(((t - lo) / span) * nBins);
+      if (idx >= nBins) idx = nBins - 1;
+      if (idx < 0) idx = 0;
+      return idx === b;
+    });
+    if (eventsInBin.length === 0) return;
+    options.onEditClick(String(fileData[fi].file), eventsInBin[0].edit_index);
+  });
 
   const addedColor = cssVar(wrap, "--fh-added", "#16a34a");
   const removedColor = cssVar(wrap, "--fh-removed", "#dc2626");

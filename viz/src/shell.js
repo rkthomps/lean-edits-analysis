@@ -152,6 +152,16 @@ async function showSession(main, session) {
     return;
   }
 
+  const options = {
+    onEditClick: (file, editIndex) => {
+      const { owner, repo, sha } = session;
+      const url =
+        `/diff.html?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}` +
+        `&sha=${encodeURIComponent(sha)}&file=${encodeURIComponent(file)}&edit_index=${editIndex}`;
+      window.open(url, "_blank");
+    },
+  };
+
   const views = data.views || [];
   for (const view of views) {
     const panel = el("section", { class: "shell-view" });
@@ -163,6 +173,6 @@ async function showSession(main, session) {
       );
       continue;
     }
-    renderFn(panel, view.data, {});
+    renderFn(panel, view.data, options);
   }
 }

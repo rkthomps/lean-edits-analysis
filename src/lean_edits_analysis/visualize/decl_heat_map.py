@@ -2,12 +2,11 @@ from pathlib import Path
 from pydantic import BaseModel
 from datetime import datetime
 
-from edit_data.types import WorkspaceChangeHistory, ContentChange
+from edit_data.types import WorkspaceChangeHistory, ContentChange, GitChangeMetadata
 from edit_data.edits import apply_change, get_version_at_time
 
-from lean_edits_analysis.scratchpad import Scratchpad
 from lean_edits_analysis.edit_info import EditInfoCache
-from lean_edits_analysis.util import to_client_range
+from lean_edits_analysis.util import GitUrlParts, to_client_range
 
 from lean_client.client import Decl
 
@@ -16,6 +15,7 @@ class DeclChangeEvent(BaseModel):
     characters_added: int
     characters_removed: int
     time: datetime
+    edit_index: int
 
 
 class DeclChangeEvents(BaseModel):
@@ -40,13 +40,13 @@ class FileDeclChangeEvents(BaseModel):
         cls,
         file: Path,
         workspace_change_history: WorkspaceChangeHistory,
-        scratchpad: Scratchpad,
         cache: EditInfoCache,
     ) -> "FileDeclChangeEvents":
         decl_changes: dict[str, tuple[Decl, list[DeclChangeEvent]]] = {}
-        scratchpad.restore()
-        current_file_contents = (scratchpad.repo_path / file).read_text()
-        for _, prev_info, edit, _ in cache.iter_edits_with_info(
+        current_file_contents = get_version_at_time(
+            file, workspace_change_history.get_dict(), datetime.min
+        )
+        for edit_idx, prev_info, edit, _ in cache.iter_edits_with_info(
             workspace_change_history, file, edit_start_idx=0
         ):
             for decl in prev_info.decls:
@@ -79,8 +79,12 @@ class FileDeclChangeEvents(BaseModel):
                         characters_added=edit_characters_added,
                         characters_removed=edit_characters_removed,
                         time=edit.time,
+                        edit_index=edit_idx,
                     )
                 )
+            current_file_contents = get_version_at_time(
+                file, workspace_change_history.get_dict(), edit.time
+            )
 
         decl_change_list: list[DeclChangeEvents] = []
         for decl_name, (decl, change_events) in decl_changes.items():
@@ -100,21 +104,24 @@ class DeclHeatmapInfo(BaseModel):
 
     @classmethod
     def build(
-        cls,
-        workspace_change_history: WorkspaceChangeHistory,
-        scratchpad: Scratchpad,
+        cls, workspace_change_history: WorkspaceChangeHistory, git_parts: GitUrlParts
     ) -> "DeclHeatmapInfo":
         file_data: list[FileDeclChangeEvents] = []
+        assert isinstance(workspace_change_history.metadata, GitChangeMetadata)
         for file_info in workspace_change_history.files:
             file = file_info.path
-            cache = EditInfoCache.get_cache(scratchpad, file)
+            cache = EditInfoCache(
+                scratchpad_repo_owner=git_parts.owner,
+                scratchpad_repo_name=git_parts.repo,
+                scratchpad_commit_sha=workspace_change_history.metadata.head,
+                file=file,
+            )
             assert cache.exists_and_has_correct_num_edits(
-                workspace_change_history, file, scratchpad
+                workspace_change_history, file
             )
             change_events = FileDeclChangeEvents.build(
                 file=file,
                 workspace_change_history=workspace_change_history,
-                scratchpad=scratchpad,
                 cache=cache,
             )
             file_data.append(change_events)
